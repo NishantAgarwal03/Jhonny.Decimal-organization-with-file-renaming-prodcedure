@@ -1,0 +1,10 @@
+{
+  "categories": {
+    "Identity_Documents": "10.01",
+    "Legal_Case_Files": "20.01",
+    "Financial_Receipts_Bills": "30.01",
+    "Study_Notes_Exam_Prep": "40.01",
+    "Unsorted_Miscellaneous": "80.01"
+  },
+  "incubation": {}
+}

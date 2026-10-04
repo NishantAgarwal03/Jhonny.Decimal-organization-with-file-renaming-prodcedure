@@ -1,0 +1,84 @@
+{
+  "Identity_Documents": {
+    "description": "Government issued identity cards and personal identification documents such as Aadhaar, PAN, voter ID, driving licence, passport.",
+    "aliases": [
+      "identity card",
+      "id proof",
+      "aadhaar",
+      "pan card",
+      "voter id",
+      "driving licence",
+      "passport",
+      "photo id"
+    ],
+    "positive_examples": [
+      "passport copy.pdf",
+      "identity proof scan.jpg",
+      "national id card front.png"
+    ]
+  },
+  "Legal_Case_Files": {
+    "description": "Legal notices, court case papers, agreements, contracts, acts and legal correspondence.",
+    "aliases": [
+      "legal notice",
+      "court case",
+      "agreement",
+      "contract",
+      "legal act",
+      "affidavit",
+      "lease deed"
+    ],
+    "positive_examples": [
+      "rental agreement signed.pdf",
+      "high court order.pdf",
+      "affidavit draft.docx"
+    ]
+  },
+  "Financial_Receipts_Bills": {
+    "description": "Bank statements, utility bills, invoices, receipts, warranties, tax filings and other money records.",
+    "aliases": [
+      "bank statement",
+      "utility bill",
+      "invoice",
+      "receipt",
+      "tax return",
+      "warranty",
+      "payment proof"
+    ],
+    "positive_examples": [
+      "credit card statement march.pdf",
+      "water bill.pdf",
+      "purchase invoice.pdf"
+    ]
+  },
+  "Study_Notes_Exam_Prep": {
+    "description": "Study notes, lecture material, course modules, exam preparation and revision material.",
+    "aliases": [
+      "study notes",
+      "lecture notes",
+      "exam preparation",
+      "course module",
+      "revision",
+      "syllabus"
+    ],
+    "positive_examples": [
+      "physics chapter notes.pdf",
+      "gate previous papers.pdf",
+      "lecture 5 slides.pdf"
+    ]
+  },
+  "Unsorted_Miscellaneous": {
+    "description": "Fallback bucket for files that do not confidently fit the active Johnny Decimal taxonomy.",
+    "aliases": [
+      "unsorted",
+      "miscellaneous",
+      "triage",
+      "review needed"
+    ],
+    "positive_examples": [
+      "unknown file.tmp",
+      "misc document.pdf",
+      "review later.txt"
+    ]
+  }
+}

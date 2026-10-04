@@ -1,0 +1,5 @@
+{
+  "dense_confidence_threshold": 0.18,
+  "top1_top2_margin_threshold": 0.02,
+  "unsorted_override_threshold": 0.12
+}

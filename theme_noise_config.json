@@ -1,0 +1,25 @@
+{
+  "global_stopwords": [
+    "your",
+    "into",
+    "than",
+    "then",
+    "that",
+    "this"
+  ],
+  "path_scaffolding_terms": [
+    "public",
+    "shared",
+    "workspace"
+  ],
+  "packaging_terms": [
+    "vendor",
+    "vendors",
+    "runtime",
+    "runtimes"
+  ],
+  "format_terms": [
+    "webp",
+    "ico"
+  ]
+}

@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Run output and personal data (never commit)
+session_*/
+runs/
+data/
+temp/
+tmp_*/
+*.csv
+*.sqlite
+undo_log.jsonl
+simulation_results.json
+master_index.json
+local_hints.json
+!master_index.example.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

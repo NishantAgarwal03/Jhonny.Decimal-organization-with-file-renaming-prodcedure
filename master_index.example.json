@@ -1,0 +1,38 @@
+{
+  "categories": {
+    "Identity_Documents": "10.01",
+    "Finance_Bills_Receipts": "20.01",
+    "Study_Notes_Exam_Prep": "30.01",
+    "Work_Projects": "40.01",
+    "Software_Installers": "50.01",
+    "Unsorted_Miscellaneous": "80.01"
+  },
+  "incubation": {},
+  "profiles": {
+    "Identity_Documents": {
+      "description": "Government issued identity cards and personal identification documents.",
+      "aliases": ["identity card", "id proof", "passport", "driving licence", "voter id"],
+      "positive_examples": ["passport copy.pdf", "driving licence scan.jpg"]
+    },
+    "Finance_Bills_Receipts": {
+      "description": "Bank statements, utility bills, invoices, receipts and tax filings.",
+      "aliases": ["bank statement", "utility bill", "invoice", "receipt", "tax return"],
+      "positive_examples": ["electricity bill march.pdf", "purchase invoice.pdf"]
+    },
+    "Study_Notes_Exam_Prep": {
+      "description": "Lecture notes, course material, exam preparation and revision.",
+      "aliases": ["lecture notes", "study notes", "exam preparation", "revision"],
+      "positive_examples": ["physics chapter notes.pdf", "lecture 5 slides.pdf"]
+    },
+    "Work_Projects": {
+      "description": "Project documents, drawings, reports and working files.",
+      "aliases": ["project report", "drawing", "proposal", "site plan"],
+      "positive_examples": ["project report final.docx", "site plan rev2.pdf"]
+    },
+    "Software_Installers": {
+      "description": "Installers, setup packages and application downloads.",
+      "aliases": ["installer", "setup", "portable app", "driver"],
+      "positive_examples": ["app_setup_x64.exe", "driver package.zip"]
+    }
+  }
+}

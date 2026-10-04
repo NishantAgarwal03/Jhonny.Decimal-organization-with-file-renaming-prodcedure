@@ -1,0 +1,14 @@
+{
+  "full": {
+    "accuracy": 0.84,
+    "abstention_rate": 0.36,
+    "misfile_rate": 0.0,
+    "cases": 25
+  },
+  "ui": {
+    "accuracy": 0.92,
+    "abstention_rate": 0.24,
+    "misfile_rate": 0.04,
+    "cases": 25
+  }
+}
