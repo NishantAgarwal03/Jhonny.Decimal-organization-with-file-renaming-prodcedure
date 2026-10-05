@@ -1,0 +1,22 @@
+{
+  "index_round1.json": {
+    "second": {
+      "correct": 84.8,
+      "wrong": 3.0
+    },
+    "first": {
+      "correct": 66.7,
+      "wrong": 0.0
+    }
+  },
+  "index_round2.json": {
+    "second": {
+      "correct": 97.7,
+      "wrong": 0.3
+    },
+    "first": {
+      "correct": 80.1,
+      "wrong": 0.0
+    }
+  }
+}

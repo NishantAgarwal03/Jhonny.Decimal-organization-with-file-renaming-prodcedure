@@ -1,0 +1,16 @@
+{
+  "_comment": "Maps the bucket names an LLM chose in the synthetic indexes to the answer key's names (synthetic_truth.csv).",
+  "Engineering_Lectures_Notes": "Study_Engineering",
+  "Programming_Video_Courses": "Programming_Courses",
+  "Software_and_Installers": "Software_Installers",
+  "Bills_Tax_Finance": "Finance_Tax_Bills",
+  "ID_and_Legal_Papers": "Identity_Legal",
+  "Photos_Videos_Family": "Family_Photos",
+  "Music_Library": "Music",
+  "Movies_and_TV": "Movies_Shows",
+  "Books_and_Ebooks": "Books_Ebooks",
+  "Work_and_Client_Projects": "Work_Projects",
+  "Health_Records": "Health_Medical",
+  "Travel_Documents": "Travel",
+  "Unsorted_Miscellaneous": "Unsorted_Miscellaneous"
+}

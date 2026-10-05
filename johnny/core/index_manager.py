@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 # Every index gets this fallback bucket profile; other categories need their own under "profiles".
 DEFAULT_PROFILES = {
@@ -79,18 +80,16 @@ class IndexManager:
         if not existing_codes:
             new_code = "10.01"
         else:
-            # Parse highest existing code
-            highest = existing_codes[-1] # assuming order, but let's parse safely
+            # Highest existing code; a malformed one means the index is damaged, so stop instead of guessing.
             max_area = 10
             max_id = 0
             for code in existing_codes:
-                parts = code.split('.')
-                if len(parts) == 2:
-                    a = int(parts[0])
-                    i = int(parts[1])
-                    if a > max_area or (a == max_area and i > max_id):
-                        max_area = a
-                        max_id = i
+                if not re.fullmatch(r"\d{2}\.\d{2}", str(code)):
+                    raise ValueError(f"Malformed category code {code!r} in {self.index_path}: expected NN.NN")
+                a, i = int(code[:2]), int(code[3:])
+                if a > max_area or (a == max_area and i > max_id):
+                    max_area = a
+                    max_id = i
             
             # Increment
             if max_id >= 99:

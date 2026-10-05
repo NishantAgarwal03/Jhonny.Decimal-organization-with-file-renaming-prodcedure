@@ -49,6 +49,7 @@ def main():
 
     noise_config = load_noise_config(config_path)
     raw_counter = Counter()
+    scan_rows = []
 
     print(f"Extracting typed contextual evidence from {csv_file}...")
 
@@ -74,6 +75,7 @@ def main():
         )
 
         for row in reader:
+            scan_rows.append(row)
             evidence = build_file_evidence(row, noise_config)
 
             raw_counter.update(evidence["candidate_tokens"])
@@ -100,6 +102,8 @@ def main():
     single_rows, phrase_rows, cluster_bundle_flags = build_theme_evidence(audit_file, noise_config)
     write_theme_evidence_csv(evidence_file, single_rows, phrase_rows)
     write_legacy_theme_files(session_dir, single_rows)
+    note_path = os.path.join(session_dir, "author_note.txt")
+    author_note = open(note_path, encoding="utf-8").read().strip() if os.path.exists(note_path) else ""
     write_llm_handoff_json(
         handoff_file,
         os.path.basename(os.path.normpath(session_dir)),
@@ -107,6 +111,8 @@ def main():
         phrase_rows,
         cluster_bundle_flags,
         count,
+        scan_rows=scan_rows,
+        author_note=author_note,
     )
 
     elapsed = time.time() - start

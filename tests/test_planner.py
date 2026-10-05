@@ -97,7 +97,7 @@ class Base(unittest.TestCase):
             f.write(content)
 
     def run_organizer(self, *flags):
-        argv = ["organizer.py", self.inbox, "--index", self.index, "--fast-seed", *flags]
+        argv = ["organizer.py", self.inbox, "--index", self.index, "--fast-seed", "--dest", self.root, *flags]
         with mock.patch.object(sys, "argv", argv), redirect_stdout(io.StringIO()) as out:
             try:
                 organizer.main()
@@ -177,6 +177,71 @@ class OrganizerWithRules(Base):
         self.assertEqual(code, 2)
         self.assertIn("routed files", out)
         self.assertEqual(tree(self.inbox), before)
+
+
+class FolderVote(unittest.TestCase):
+    UNS = "Unsorted_Miscellaneous"
+
+    def vote(self, folders, **kw):
+        """folders: [(folder, [(final, nearest), ...])] -> (topics, moved)"""
+        paths, topics, near = [], [], []
+        for folder, files in folders:
+            for i, (final, closest) in enumerate(files):
+                paths.append(os.path.join(*folder.split("/"), f"f{i}.txt"))
+                topics.append(final)
+                near.append(closest)
+        return planner.folder_vote(paths, topics, near, **kw)
+
+    def test_refused_files_follow_a_folder_that_agrees(self):
+        topics, moved = self.vote([("music", [("Music", "Music")] * 5 + [(self.UNS, "Music")] * 25)])
+        self.assertEqual((moved, set(topics)), (25, {"Music"}))
+
+    def test_a_mixed_folder_stays_unsorted(self):
+        topics, moved = self.vote([("mix", [(self.UNS, "Music")] * 15 + [(self.UNS, "Books")] * 15)])
+        self.assertEqual((moved, set(topics)), (0, {self.UNS}))
+
+    def test_the_deepest_clean_folder_wins_inside_a_mixed_parent(self):
+        files = [("lib/books", [(self.UNS, "Books")] * 25), ("lib/songs", [(self.UNS, "Music")] * 25)]
+        topics, moved = self.vote(files)
+        self.assertEqual((moved, topics[:25], topics[25:]), (50, ["Books"] * 25, ["Music"] * 25))
+
+    def test_small_folders_and_unsorted_winners_do_not_vote(self):
+        self.assertEqual(self.vote([("tiny", [(self.UNS, "Music")] * 10)])[1], 0)
+        self.assertEqual(self.vote([("odd", [(self.UNS, self.UNS)] * 30)])[1], 0)
+
+    def test_files_directly_in_the_scanned_folder_never_vote(self):
+        topics, moved = planner.folder_vote(["a.txt"] * 30, [self.UNS] * 30, ["Music"] * 30)
+        self.assertEqual((moved, set(topics)), (0, {self.UNS}))
+
+    def test_type_check_keeps_a_pdf_out_of_a_folder_of_songs(self):
+        paths = [os.path.join("old", f"song{i}.mp3") for i in range(25)] + [os.path.join("old", "Form 16 2019.pdf")]
+        topics, near = [self.UNS] * 26, ["Music"] * 25 + ["Finance"]
+        plain, moved_plain = planner.folder_vote(paths, topics, near)
+        checked, moved_checked = planner.folder_vote(paths, topics, near, type_check=True)
+        self.assertEqual((moved_plain, plain[-1]), (26, "Music"))          # the plain vote also moves the pdf
+        self.assertEqual((moved_checked, checked[-1]), (25, self.UNS))      # with the type check no song is a pdf, so the pdf waits
+
+    def test_the_type_check_lets_a_type_through_when_the_folder_has_it(self):
+        paths = [os.path.join("course", f"lesson{i}.mp4") for i in range(20)] + [os.path.join("course", f"lesson{i}.srt") for i in range(10)]
+        topics = ["Code"] * 15 + [self.UNS] * 5 + ["Code"] * 5 + [self.UNS] * 5
+        moved = planner.folder_vote(paths, topics, ["Code"] * 30, type_check=True)[1]
+        self.assertEqual(moved, 10)                                         # srt files are common among the agreeing files
+
+    def test_held_files_never_follow_a_folder(self):
+        paths = [os.path.join("music", f"s{i}.mp3") for i in range(25)]
+        topics, moved = planner.folder_vote(paths, [self.UNS] * 25, ["Music"] * 25, hold=[True] * 5 + [False] * 20)
+        self.assertEqual((moved, topics[:5], set(topics[5:])), (20, [self.UNS] * 5, {"Music"}))
+
+    def test_files_with_no_informative_word_are_recognised(self):
+        sep = os.sep
+        for path in (f"Old Stuff{sep}scan7300.pdf", f"Downloads{sep}IMG_4213.jpg", f"Misc{sep}New Microsoft Word Document (9433).docx", f"New Folder (2){sep}0005752.pdf"):
+            self.assertFalse(planner.has_information(path), path)
+        for path in (f"Photos{sep}Diwali 2019{sep}IMG_0187.jpg", f"Downloads{sep}Form 16 2019.pdf", f"Misc{sep}Hotel Booking Goa.pdf"):
+            self.assertTrue(planner.has_information(path), path)
+
+    def test_sorted_files_are_never_changed(self):
+        topics, _ = self.vote([("mix", [("Books", "Music")] * 3 + [(self.UNS, "Music")] * 27)])
+        self.assertEqual(topics[:3], ["Books"] * 3)
 
 
 if __name__ == "__main__":

@@ -417,6 +417,124 @@ def compute_modified_square_root_range(total_target_files):
     }
 
 
+def _folder_key(path_value, depth=2):
+    parts = [p for p in re.split(r"[\\/]+", path_value) if p]
+    return "\\".join(parts[:-1][:depth]) or "."
+
+
+def _spread(items, count):
+    """`count` items spread evenly over the list: shows a folder's range, not just its first files."""
+    if len(items) <= count:
+        return list(items)
+    return [items[i * len(items) // count] for i in range(count)]
+
+
+def _group_summary(folder, group, samples):
+    types = Counter((r.get("type") or "(none)").lower() for r in group)
+    names = [f'{r.get("name", "")}{r.get("type", "")}' for r in group]
+    return {"folder": folder, "files": len(group), "top_types": dict(types.most_common(3)), "sample_names": _spread(names, samples)}
+
+
+def _folder_groups(rows, big, depth=2, max_depth=5):
+    """Group files by folder (2 levels); a folder holding more than `big` files is split one level deeper, up to max_depth."""
+    by_key = defaultdict(list)
+    for r in rows:
+        by_key[_folder_key(r["path"], depth)].append(r)
+    out = {}
+    for key, group in by_key.items():
+        sub = _folder_groups(group, big, depth + 1, max_depth) if len(group) > big and depth < max_depth else None
+        out.update(sub if sub and len(sub) > 1 else {key: group})
+    return out
+
+
+def summarize_scan(rows, max_folders=250, samples=5, max_types=40):
+    """What an LLM needs to see: the size of the job, a folder map and a file-type table. rows = scan CSV dicts (path, name, type).
+    Software folders and junk are counted but not mapped: fixed rules place them, so they need no bucket."""
+    from johnny.core.planner import split_files  # pure stdlib, same rules the organize step applies first
+
+    units, junk, routed = split_files(".", [r["path"] for r in rows])
+    needing = set(routed)
+    work = [r for r in rows if r["path"] in needing]
+    groups = _folder_groups(work, big=max(300, len(work) // 30))
+    types_by_folder = defaultdict(Counter)
+    for key, group in groups.items():
+        for r in group:
+            types_by_folder[(r.get("type") or "(none)").lower()][key] += 1
+    ranked = sorted(groups.items(), key=lambda item: -len(item[1]))
+    listed = ranked[:max_folders]
+    return {
+        "drive_overview": {
+            "files_total": len(rows),
+            "software_units_handled_by_rule": {"count": len(units), "files": sum(units.values())},
+            "junk_files_handled_by_rule": len(junk),
+            "files_needing_a_bucket": len(routed),
+            "folders_holding_them": len(groups),
+            "unsorted_allowed": len(routed) // 150,
+            "folders_listed": len(listed),
+            "files_in_folders_not_listed": sum(len(g) for _, g in ranked[max_folders:]),
+        },
+        "folder_map": [_group_summary(folder, group, samples) for folder, group in listed],
+        "file_type_table": [
+            {"type": ext, "files": sum(c.values()), "main_folders": dict(c.most_common(2))}
+            for ext, c in sorted(types_by_folder.items(), key=lambda item: -sum(item[1].values()))[:max_types]
+        ],
+    }
+
+
+def group_leftovers(paths, nearest=None, max_groups=150, samples=5):
+    """Files left in Unsorted, grouped by folder. `nearest(sample_paths)` supplies the closest buckets (it needs the model)."""
+    groups = defaultdict(list)
+    for p in paths:
+        name, ext = os.path.splitext(os.path.basename(p))
+        groups[_folder_key(p)].append({"path": p, "name": name, "type": ext.lower()})
+    out = []
+    for folder, group in sorted(groups.items(), key=lambda item: -len(item[1]))[:max_groups]:
+        summary = _group_summary(folder, group, samples)
+        if nearest:
+            summary["closest_buckets"] = nearest(_spread([r["path"] for r in group], samples))
+        out.append(summary)
+    return out
+
+
+def summarize_closest(candidate_lists, top=2):
+    """Which buckets a group of files came closest to. candidate_lists = one [{category, score}, ...] per sample file."""
+    closest = defaultdict(list)
+    for candidates in candidate_lists:
+        if candidates:
+            closest[candidates[0]["category"]].append(candidates[0]["score"])
+    ranked = sorted(closest.items(), key=lambda item: -len(item[1]))[:top]
+    return [{"category": k, "samples_where_closest": len(v), "avg_score": round(sum(v) / len(v), 3)} for k, v in ranked]
+
+
+def write_leftover_handoff_json(output_path, session_name, index_data, groups, unsorted_count, allowed, needing_a_bucket):
+    """Round 2+ prompt for the LLM (pasted by hand): the current index and the files still in Unsorted, grouped by folder with the
+    two nearest buckets. The reply is the complete updated master_index.json, so the normal index import path is reused."""
+    handoff = {
+        "session": session_name,
+        "instructions": {
+            "goal": (
+                f"{unsorted_count} of {needing_a_bucket} files ended in Unsorted_Miscellaneous; at most {allowed} "
+                "(1 in 150) are allowed. Improve current_index so these files get a bucket."
+            ),
+            "for_each_group_choose_one": [
+                "add_to_existing_bucket: add aliases / positive_examples that use words from this group's folder path or sample names",
+                "new_bucket: add a category (new code, no overlap with existing buckets) with a full profile",
+                "handle_by_rule: junk, software or file pieces that no words can place; list them under notes.rules (not applied by the tool yet)",
+            ],
+            "requirements": [
+                "The local matcher only reads each file's name and folder path as words, so every added word must appear in a folder path or sample name.",
+                "closest_buckets shows where the matcher nearly put a group: a near miss usually means better words, no near miss means a new bucket.",
+                "Keep existing codes and names unless you merge two buckets on purpose; say so in notes.",
+                "Return the complete updated master_index.json (categories, incubation, profiles, optional notes).",
+            ],
+        },
+        "current_index": {key: index_data.get(key, {}) for key in ("categories", "incubation", "profiles")},
+        "leftover_groups": groups,
+    }
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(handoff, f, indent=2)
+
+
 def write_llm_handoff_json(
     output_path,
     session_name,
@@ -424,6 +542,8 @@ def write_llm_handoff_json(
     phrase_rows,
     cluster_bundle_flags,
     total_target_files,
+    scan_rows=None,
+    author_note="",
 ):
     id_target = compute_modified_square_root_range(total_target_files)
     handoff = {
@@ -442,10 +562,17 @@ def write_llm_handoff_json(
                     "example file names. Routing quality depends on these; without them a category is matched on its name only."
                 ),
                 "Avoid overfitting to one extracted software bundle.",
+                "Read author_note and folder_map first: choose the organising principle the data supports and say why in notes.organising_principle.",
+                "Choose the number of buckets yourself and give the reason in notes.bucket_count_reason; buckets must not overlap.",
                 (
-                    f"Your target is between {id_target['target_id_count_min']} and "
-                    f"{id_target['target_id_count_max']} specific subcategories (IDs), "
-                    "computed dynamically from the file count using the Modified Square Root Rule."
+                    "The local matcher only reads each file's name and folder path as words, so write aliases and examples "
+                    "with words that really appear in folder_map paths and sample names."
+                ),
+                "Success test: at most unsorted_allowed files (1 in 150 of files_needing_a_bucket) may end in Unsorted_Miscellaneous.",
+                (
+                    f"For reference only: the Modified Square Root Rule suggests {id_target['target_id_count_min']} to "
+                    f"{id_target['target_id_count_max']} specific subcategories (IDs) for this file count. "
+                    "You decide the number the data supports."
                 ),
             ],
             "output_contract": {
@@ -453,6 +580,7 @@ def write_llm_handoff_json(
                 "required_keys": ["categories", "incubation"],
                 "optional_keys": {
                     "profiles": {"<Category_Name>": {"description": "...", "aliases": ["..."], "positive_examples": ["..."]}},
+                    "notes": {"organising_principle": "...", "bucket_count_reason": "..."},
                 },
             },
         },
@@ -465,6 +593,9 @@ def write_llm_handoff_json(
             if value.get("is_bundle_like")
         ],
     }
+    if scan_rows is not None:
+        handoff.update(summarize_scan(scan_rows))
+        handoff["author_note"] = author_note or "(none: add a few lines about what this drive is for to author_note.txt next to drive_scan.csv, then re-run Create Plan)"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(handoff, f, indent=2)
 

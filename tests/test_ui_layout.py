@@ -2,7 +2,7 @@
 
 1. Hard contracts: one panel per step, primary actions mapped and sized, minsize honoured,
    no two interactive widgets overlapping.
-2. Clipping ratchet: KNOWN_CLIPPING lists layout defects that exist today (absolute `place()` coordinates).
+2. Clipping ratchet: KNOWN_CLIPPING lists layout defects that exist today (none today; the layout uses pack/grid).
    The test fails on any NEW clipped / truncated widget, so the list can only shrink.
    Print the current set with:  python tests/test_ui_layout.py --print
 """
@@ -19,59 +19,13 @@ try:
 except Exception:
     TK_OK = False
 
-SIZES = [(920, 620), (1080, 700), (1366, 768)]
+SIZES = [(1100, 700), (1240, 800), (1366, 768)]
 VIEWS = [("Scan", None), ("Rename", "Quick"), ("Rename", "Deep"), ("Organize", "Category Plan"), ("Organize", "Apply Organization")]
 INTERACTIVE = {"Button", "Radiobutton", "Checkbutton", "Entry", "Treeview"}
 TEXT_CLASSES = {"Button", "Label", "Radiobutton", "Checkbutton"}
 
-# (size, step, mode, kind, widget class, widget text) -> known defect (TASKS: "Fix Tk layout clipping").
-KNOWN_CLIPPING = {
-    ((920, 620), 'Organize', 'Apply Organization', 'clipped', 'Button', 'Apply Organization'),
-    ((920, 620), 'Organize', 'Apply Organization', 'clipped', 'Frame', ''),
-    ((920, 620), 'Organize', 'Apply Organization', 'clipped', 'Label', 'Routes files into JD folders using the s'),
-    ((920, 620), 'Organize', 'Apply Organization', 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((920, 620), 'Organize', 'Apply Organization', 'text-truncated-w', 'Button', 'Apply Organization'),
-    ((920, 620), 'Organize', 'Category Plan', 'clipped', 'Button', 'Open Index'),
-    ((920, 620), 'Organize', 'Category Plan', 'clipped', 'Frame', ''),
-    ((920, 620), 'Organize', 'Category Plan', 'clipped', 'Label', 'Build the raw category-plan artifacts fo'),
-    ((920, 620), 'Organize', 'Category Plan', 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((920, 620), 'Rename', 'Deep', 'clipped', 'Button', 'Apply Rename'),
-    ((920, 620), 'Rename', 'Deep', 'clipped', 'Label', 'Uses filename plus local semantic contex'),
-    ((920, 620), 'Rename', 'Deep', 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((920, 620), 'Rename', 'Quick', 'clipped', 'Button', 'Apply Rename'),
-    ((920, 620), 'Rename', 'Quick', 'clipped', 'Label', 'Uses the existing filename only. Fast an'),
-    ((920, 620), 'Rename', 'Quick', 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((920, 620), 'Scan', None, 'clipped', 'Label', '? Creates a full inventory log without c'),
-    ((920, 620), 'Scan', None, 'clipped', 'Label', '? Prepares the next steps for Rename and'),
-    ((920, 620), 'Scan', None, 'clipped', 'Label', '? Scans the selected folder using the cu'),
-    ((920, 620), 'Scan', None, 'clipped', 'Label', 'No output created yet'),
-    ((920, 620), 'Scan', None, 'clipped', 'Label', 'Output files'),
-    ((920, 620), 'Scan', None, 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((1080, 700), 'Organize', 'Apply Organization', 'clipped', 'Button', 'Apply Organization'),
-    ((1080, 700), 'Organize', 'Apply Organization', 'clipped', 'Frame', ''),
-    ((1080, 700), 'Organize', 'Apply Organization', 'clipped', 'Label', 'Routes files into JD folders using the s'),
-    ((1080, 700), 'Organize', 'Apply Organization', 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((1080, 700), 'Organize', 'Apply Organization', 'text-truncated-w', 'Button', 'Apply Organization'),
-    ((1080, 700), 'Organize', 'Category Plan', 'clipped', 'Button', 'Open Index'),
-    ((1080, 700), 'Organize', 'Category Plan', 'clipped', 'Frame', ''),
-    ((1080, 700), 'Organize', 'Category Plan', 'clipped', 'Label', 'Build the raw category-plan artifacts fo'),
-    ((1080, 700), 'Organize', 'Category Plan', 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((1080, 700), 'Rename', 'Deep', 'clipped', 'Button', 'Apply Rename'),
-    ((1080, 700), 'Rename', 'Deep', 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((1080, 700), 'Rename', 'Quick', 'clipped', 'Button', 'Apply Rename'),
-    ((1080, 700), 'Rename', 'Quick', 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((1080, 700), 'Scan', None, 'clipped', 'Label', 'No output created yet'),
-    ((1080, 700), 'Scan', None, 'clipped', 'Label', 'Output files'),
-    ((1080, 700), 'Scan', None, 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((1366, 768), 'Organize', 'Apply Organization', 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((1366, 768), 'Organize', 'Apply Organization', 'text-truncated-w', 'Button', 'Apply Organization'),
-    ((1366, 768), 'Organize', 'Category Plan', 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((1366, 768), 'Rename', 'Deep', 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((1366, 768), 'Rename', 'Quick', 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-    ((1366, 768), 'Scan', None, 'clipped', 'Label', 'No output created yet'),
-    ((1366, 768), 'Scan', None, 'clipped', 'Label', 'Output files'),
-    ((1366, 768), 'Scan', None, 'text-truncated-h', 'Label', 'Scope: This folder only | Subfolders wil'),
-}
+# (size, step, mode, kind, widget class, widget text) -> known defect. Empty: keep it that way.
+KNOWN_CLIPPING = set()
 
 
 def walk(widget):
@@ -148,7 +102,7 @@ class UiLayout(unittest.TestCase):
     def test_window_honours_minimum_size(self):
         self.app.geometry("300x200+20000+20000")
         self.app.update()
-        self.assertGreaterEqual((self.app.winfo_width(), self.app.winfo_height()), (920, 620))
+        self.assertGreaterEqual((self.app.winfo_width(), self.app.winfo_height()), (1100, 700))
 
     def test_interactive_widgets_do_not_overlap(self):
         for size in SIZES:

@@ -1,5 +1,12 @@
 {
   "dense_confidence_threshold": 0.18,
-  "top1_top2_margin_threshold": 0.02,
-  "unsorted_override_threshold": 0.12
+  "top1_top2_margin_threshold": 0.01,
+  "unsorted_override_threshold": 0.12,
+  "_note": "Used when present; the fallbacks in johnny/core/embedding_manager.py must equal the three top-level numbers (the top-level lead is the SECOND pass). passes.first overrides the strict first pass (see johnny/core/sorting.py presets). Do not run skill_runner benchmark-jd: it overwrites this file.",
+  "passes": {
+    "first": {
+      "lead": 0.03,
+      "vote_share": 0.9
+    }
+  }
 }

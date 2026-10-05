@@ -106,6 +106,15 @@ class RouterMoves(TempCase):
         self.assertNotEqual(first, second)
         self.assertEqual(read(first), "1")
 
+    def test_rename_and_move_collide_the_same_way(self):
+        folder = os.path.join(self.root, "11.01_Tax")
+        os.makedirs(folder)
+        open(os.path.join(folder, "a.txt"), "w").close()
+        moved = self.router.route_file(self.write("a.txt", "y"), "Tax")
+        renamed = utils.generate_safe_filename(folder, "a", ".txt")
+        self.assertEqual(os.path.basename(moved), "a_1.txt")
+        self.assertEqual(os.path.basename(renamed), "a_2.txt")
+
     def test_failed_move_returns_none_and_keeps_source(self):
         src = self.write("a.txt")
         with mock.patch.object(router, "safe_rename", side_effect=PermissionError("locked")):
@@ -213,6 +222,20 @@ class ProfileCoverage(unittest.TestCase):
         self.assertEqual(missing_profiles([], {"B": {}}), [])
         self.assertEqual(missing_profiles(["B"], {"B": {}}), [])
 
+    def test_shipped_profiles_do_not_cover_the_shipped_indexes(self):
+        """Documents the real cause of high abstention: category_profiles.json is from another taxonomy."""
+        import json
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if not os.path.exists(os.path.join(root, "category_profiles.json")):
+            self.skipTest("category_profiles.json is not shipped in the public release")
+        with open(os.path.join(root, "category_profiles.json"), encoding="utf-8") as f:
+            profiles = json.load(f)
+        with open(os.path.join(root, "fixtures", "jd_benchmark_profiles.json"), encoding="utf-8") as f:
+            fixture_profiles = json.load(f)
+        with open(os.path.join(root, "fixtures", "jd_benchmark_index.json"), encoding="utf-8") as f:
+            fixture_categories = list(json.load(f)["categories"])
+        self.assertGreater(len(missing_profiles(fixture_categories, profiles)), 0)
+        self.assertEqual(missing_profiles(fixture_categories, fixture_profiles), [])
 
 
 PROFILE = {"description": "Bank statements and bills.", "aliases": ["bank statement"], "positive_examples": ["water bill.pdf"]}
@@ -253,6 +276,104 @@ class IndexProfiles(TempCase):
         self.assertTrue(any("profiles" in r for r in handoff["instructions"]["requirements"]))
         self.assertIn("profiles", handoff["instructions"]["output_contract"]["optional_keys"])
 
+    ROWS = [{"path": f"Study/Soil/Lec {i}.mp4", "name": f"Lec {i}", "type": ".mp4"} for i in range(30)] + [
+        {"path": "Music/a.mp3", "name": "a", "type": ".mp3"}, {"path": "venv/x.py", "name": "x", "type": ".py"},
+        {"path": "proj/.venv/Lib/site-packages/m.py", "name": "m", "type": ".py"}, {"path": "t.tmp", "name": "t", "type": ".tmp"}]
+
+    def test_handoff_gives_the_llm_a_folder_map_and_the_author_note(self):
+        path = os.path.join(self.tmp, "handoff.json")
+        evidence_engine.write_llm_handoff_json(path, "s", [], [], {}, 100, scan_rows=self.ROWS, author_note="Civil study drive")
+        import json
+        with open(path, encoding="utf-8") as f:
+            handoff = json.load(f)
+        self.assertEqual(handoff["author_note"], "Civil study drive")
+        overview = handoff["drive_overview"]
+        self.assertEqual((overview["files_total"], overview["junk_files_handled_by_rule"], overview["software_units_handled_by_rule"]["files"]), (34, 1, 1))
+        self.assertEqual(overview["files_needing_a_bucket"], 32)
+        top = handoff["folder_map"][0]
+        self.assertEqual((top["folder"], top["files"], top["top_types"], len(top["sample_names"])), ("Study" + chr(92) + "Soil", 30, {".mp4": 30}, 5))
+        self.assertEqual(handoff["file_type_table"][0]["type"], ".mp4")
+        self.assertIn("notes", handoff["instructions"]["output_contract"]["optional_keys"])
+
+    def test_leftovers_are_grouped_by_folder_with_the_closest_buckets(self):
+        paths = [f"Pics/a{i}.jpg" for i in range(7)] + ["Misc/b.dat"]
+        groups = evidence_engine.group_leftovers(paths, nearest=lambda samples: [{"category": "Photos", "n": len(samples)}])
+        self.assertEqual([(g["folder"], g["files"]) for g in groups], [("Pics", 7), ("Misc", 1)])
+        self.assertEqual(groups[0]["closest_buckets"], [{"category": "Photos", "n": 5}])
+        self.assertEqual(groups[1]["sample_names"], ["b.dat"])
+
+
+class BatchSorting(unittest.TestCase):
+    """get_topic_details_many must decide exactly like get_topic_details, and reuse cached file embeddings."""
+
+    def make_engine(self):
+        import numpy as np
+
+        class Stub:
+            calls = 0
+
+            def encode_queries(self, texts, model_name=None):
+                Stub.calls += len(texts)
+                out = []
+                for t in texts:
+                    v = np.random.default_rng(int(hashlib.sha1(t.encode()).hexdigest()[:8], 16)).normal(size=8)
+                    out.append(v / np.linalg.norm(v))
+                return np.array(out)
+
+        eng = object.__new__(nlp_engine.NLPEngine)
+        eng.categories = ["A", "B", "Unsorted_Miscellaneous"]
+        eng.model_name, eng.model, eng.embedding_manager = "stub", object(), Stub()
+        eng.prototype_lookup = ["A", "A", "B", "Unsorted_Miscellaneous"]
+        proto = np.random.default_rng(1).normal(size=(4, 8))
+        eng.category_embeddings = proto / np.linalg.norm(proto, axis=1, keepdims=True)
+        eng.routing_calibration = {"dense_confidence_threshold": 0.1, "top1_top2_margin_threshold": 0.05, "unsorted_override_threshold": 0.05}
+        return eng, Stub
+
+    def test_batch_decisions_match_single_decisions(self):
+        eng, _ = self.make_engine()
+        texts = [f"file {i} words" for i in range(60)] + ["", "   "]
+        single = [eng.get_topic_details(t)[:2] for t in texts]
+        many = eng.get_topic_details_many(texts)
+        self.assertEqual([c for c, _ in single], [c for c, _, _ in many])
+        for (_, s1), (_, s2, _) in zip(single, many):
+            self.assertAlmostEqual(s1, s2, places=6)
+        self.assertEqual(many[-1][0], "Unsorted_Miscellaneous")
+        self.assertEqual(len({c for c, _, _ in many}), 3, "the stub should exercise every outcome")
+
+    def test_cache_means_a_second_round_encodes_nothing(self):
+        eng, Stub = self.make_engine()
+        cache = os.path.join(tempfile.mkdtemp(prefix="johnny_test_"), "cache.npz")
+        texts = [f"file {i}" for i in range(30)]
+        first = eng.get_topic_details_many(texts, cache_path=cache)
+        self.assertEqual(Stub.calls, 30)
+        again = eng.get_topic_details_many(texts + ["one new file"], cache_path=cache)
+        self.assertEqual(Stub.calls, 31)
+        self.assertEqual([r[0] for r in first], [r[0] for r in again[:30]])
+
+
+class ModelPrefixes(unittest.TestCase):
+    """E5 models need "query: " / "passage: "; other models must get the plain text."""
+
+    def test_only_e5_models_get_prefixes(self):
+        from johnny.core.embedding_manager import EmbeddingManager
+
+        class Spy:
+            seen = None
+
+            def encode(self, texts, normalize_embeddings=True):
+                Spy.seen = list(texts)
+                return texts
+
+        manager = EmbeddingManager()
+        for name in ("intfloat/multilingual-e5-small", "Alibaba-NLP/gte-multilingual-base"):
+            manager._models[name] = Spy()
+        manager.encode_queries(["a"], model_name="intfloat/multilingual-e5-small")
+        self.assertEqual(Spy.seen, ["query: a"])
+        manager.encode_passages(["b"], model_name="intfloat/multilingual-e5-small")
+        self.assertEqual(Spy.seen, ["passage: b"])
+        manager.encode_queries(["a"], model_name="Alibaba-NLP/gte-multilingual-base")
+        self.assertEqual(Spy.seen, ["a"])
+
 
 class IndexManagerRules(TempCase):
     def test_missing_index_raises_and_creates_nothing(self):
@@ -267,6 +388,15 @@ class IndexManagerRules(TempCase):
         index.mint_category("A")
         self.assertEqual(IndexManager(path).data["categories"], {"A": "10.01"})
         self.assertFalse(os.path.exists(path + ".tmp"))
+
+    def test_mint_category_uses_the_true_highest_code_and_rejects_malformed_ones(self):
+        index = IndexManager(os.path.join(self.tmp, "mint.json"), create=True)
+        index.data["categories"] = {"B": "12.05", "A": "10.01"}                 # highest code is not the last one
+        self.assertEqual(index.mint_category("C"), "12.06")
+        for bad in ("abc", "1.x", "1.5", "12.5.1"):
+            index.data["categories"]["Bad"] = bad
+            with self.assertRaises(ValueError):
+                index.mint_category("D")
 
 
 if __name__ == "__main__":

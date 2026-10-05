@@ -140,35 +140,20 @@ class NLPEngine:
             return text
         return ""
 
-    def get_category_candidates(self, text, top_k=3):
-        clean_text = self._normalize(text)[:1000]
-        if not clean_text or self.model is None or self.category_embeddings is None:
-            return []
-
-        query_embedding = self.embedding_manager.encode_queries([clean_text], model_name=self.model_name)[0]
-        similarities = np.dot(self.category_embeddings, query_embedding)
-
+    def _rank(self, similarities, top_k):
+        """[{category, score}] best first; a category scores as its best prototype."""
         per_category_scores = {}
         for idx, category in enumerate(self.prototype_lookup):
             score = float(similarities[idx])
             if category not in per_category_scores or score > per_category_scores[category]:
                 per_category_scores[category] = score
-
         ranked = sorted(per_category_scores.items(), key=lambda item: item[1], reverse=True)
-        return [
-            {"category": category, "score": score}
-            for category, score in ranked[: max(1, top_k)]
-        ]
+        return [{"category": category, "score": score} for category, score in ranked[: max(1, top_k)]]
 
-    def get_topic_details(self, text):
-        clean_text = self._normalize(text)[:1000]
-        if not clean_text or not self.categories:
-            return "Unsorted_Miscellaneous", 0.0, ""
-
-        candidates = self.get_category_candidates(clean_text, top_k=3)
+    def _decide(self, candidates):
+        """The abstention rule: confidence and top1-top2 margin, else Unsorted -> (category, best_score)."""
         if not candidates:
-            return "Unsorted_Miscellaneous", 0.0, clean_text
-
+            return "Unsorted_Miscellaneous", 0.0
         top_1 = candidates[0]
         top_2 = candidates[1] if len(candidates) > 1 else {"category": "Unsorted_Miscellaneous", "score": 0.0}
         best_score = float(top_1["score"])
@@ -182,8 +167,58 @@ class NLPEngine:
         if best_score < confidence_threshold or margin < margin_threshold:
             if best_score < unsorted_override or category != "Unsorted_Miscellaneous":
                 category = "Unsorted_Miscellaneous"
+        return category, best_score
 
+    def get_category_candidates(self, text, top_k=3):
+        clean_text = self._normalize(text)[:1000]
+        if not clean_text or self.model is None or self.category_embeddings is None:
+            return []
+        query_embedding = self.embedding_manager.encode_queries([clean_text], model_name=self.model_name)[0]
+        return self._rank(np.dot(self.category_embeddings, query_embedding), top_k)
+
+    def get_topic_details(self, text):
+        clean_text = self._normalize(text)[:1000]
+        if not clean_text or not self.categories:
+            return "Unsorted_Miscellaneous", 0.0, ""
+        candidates = self.get_category_candidates(clean_text, top_k=3)
+        if not candidates:
+            return "Unsorted_Miscellaneous", 0.0, clean_text
+        category, best_score = self._decide(candidates)
         return category, best_score, clean_text
+
+    def _query_embeddings(self, clean_texts, cache_path=None, chunk=2000):
+        """Embeddings of the texts. File texts never change between rounds (only the buckets do), so with
+        cache_path they are encoded once, saved after every chunk (an interrupted run resumes) and reused."""
+        keys = [hashlib.sha1(t.encode("utf-8")).hexdigest() for t in clean_texts]
+        known = {}
+        if cache_path and os.path.exists(cache_path):
+            with np.load(cache_path, allow_pickle=False) as data:
+                if str(data["model"]) == self.model_name:
+                    known = dict(zip(data["keys"].tolist(), data["emb"]))
+        todo = {k: t for k, t in zip(keys, clean_texts) if k not in known}
+        items = list(todo.items())
+        for start in range(0, len(items), chunk):
+            part = items[start:start + chunk]
+            known.update(zip((k for k, _ in part), self.embedding_manager.encode_queries([t for _, t in part], model_name=self.model_name)))
+            if cache_path:
+                tmp = cache_path + ".tmp.npz"
+                np.savez(tmp, model=np.array(self.model_name), keys=np.array(list(known)), emb=np.stack(list(known.values())))
+                os.replace(tmp, cache_path)
+            print(f"  encoded {min(start + chunk, len(items))}/{len(items)} new texts", flush=True)
+        return np.stack([known[k] for k in keys]) if keys else np.zeros((0, 1))
+
+    # Must keep deciding exactly like get_topic_details (tests/test_core.py BatchSorting): both share _rank and _decide on purpose.
+    def get_topic_details_many(self, texts, cache_path=None, top_k=3):
+        """Batch form of get_topic_details -> [(category, best_score, candidates)], same decisions as one call at a time."""
+        clean = [self._normalize(t)[:1000] for t in texts]
+        usable = [i for i, t in enumerate(clean) if t and self.categories and self.model is not None and self.category_embeddings is not None]
+        results = [("Unsorted_Miscellaneous", 0.0, [])] * len(texts)
+        if usable:
+            similarities = np.dot(self._query_embeddings([clean[i] for i in usable], cache_path), self.category_embeddings.T)
+            for row, i in zip(similarities, usable):
+                candidates = self._rank(row, top_k)
+                results[i] = (*self._decide(candidates), candidates)
+        return results
 
     def get_topic(self, text):
         category, _, _ = self.get_topic_details(text)

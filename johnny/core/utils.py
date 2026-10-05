@@ -2,39 +2,33 @@ import os
 import json
 import shutil
 import datetime
+from pathlib import Path
 
-def generate_safe_filename(target_dir, base_name, ext, max_length=170, reserved=None):
+def default_sorted_root(today=None):
+    """Where sorted files go when the user names no folder: Desktop\Sorted JD_<date> (the home folder if there is no Desktop)."""
+    home = Path.home()
+    return str((home / "Desktop" if (home / "Desktop").is_dir() else home) / f"Sorted JD_{today or datetime.date.today().isoformat()}")
+
+def unique_path(path, reserved=None):
     """
-    Generates a collision-free filename. If collisions occur, it appends a timestamp
-    like _YYYYMMDD_HHMM. `reserved` (a set) holds names already chosen in this run, so a
-    dry run picks the same names an apply would.
+    The one collision rule for every rename and move: if `path` is taken, add _1, _2, ... before the
+    extension. No clock, so a dry run and the apply that follows pick the same names. `reserved` (a set)
+    holds names already chosen in this run.
     """
     reserved = set() if reserved is None else reserved
-    taken = lambda p: os.path.exists(p) or os.path.normcase(p) in reserved
+    base, ext = os.path.splitext(path)
+    candidate, counter = path, 0
+    while os.path.exists(candidate) or os.path.normcase(candidate) in reserved:
+        counter += 1
+        candidate = f"{base}_{counter}{ext}"
+    reserved.add(os.path.normcase(candidate))
+    return candidate
+
+def generate_safe_filename(target_dir, base_name, ext, max_length=170, reserved=None):
+    """A collision-free path in target_dir for base_name + ext (name cut to max_length first)."""
     if len(base_name) > max_length:
         base_name = base_name[:max_length].strip()
-        
-    candidate = f"{base_name}{ext}"
-    candidate_path = os.path.join(target_dir, candidate)
-    
-    if not taken(candidate_path):
-        reserved.add(os.path.normcase(candidate_path))
-        return candidate_path
-        
-    # Collision occurred, append timestamp
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    candidate = f"{base_name}_{timestamp}{ext}"
-    candidate_path = os.path.join(target_dir, candidate)
-    
-    # Just in case this exact minute one exists (very rare but possible in tests)
-    counter = 1
-    while taken(candidate_path):
-        candidate = f"{base_name}_{timestamp}_{counter}{ext}"
-        candidate_path = os.path.join(target_dir, candidate)
-        counter += 1
-
-    reserved.add(os.path.normcase(candidate_path))
-    return candidate_path
+    return unique_path(os.path.join(target_dir, f"{base_name}{ext}"), reserved)
 
 def sanitize_topic_name(topic):
     """

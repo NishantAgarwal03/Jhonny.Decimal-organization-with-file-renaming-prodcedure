@@ -52,7 +52,7 @@ class OrganizerE2E(unittest.TestCase):
         return p
 
     def run_organizer(self, *flags, target=None):
-        argv = ["organizer.py", target or self.inbox, "--index", self.index, *flags]
+        argv = ["organizer.py", target or self.inbox, "--index", self.index, *([] if "--dest" in flags else ["--dest", self.root]), *flags]
         with mock.patch.object(sys, "argv", argv), redirect_stdout(io.StringIO()) as out:
             try:
                 organizer.main()
@@ -122,20 +122,22 @@ class OrganizerE2E(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.inbox, "11.01_Tax", "already.txt")))
         self.assertTrue(os.path.exists(os.path.join(self.inbox, ".hidden.txt")))
 
-    def test_full_mode_skips_no_text_files_and_renames_vague_names(self):
+    def test_full_mode_sorts_no_text_files_and_renames_vague_names(self):
         self.put("scan_001.txt", "tax return acknowledgment 2021")
         self.put("photo.jpg", "binary-ish")
-        for i in range(150):
+        for i in range(300):                                                    # allows 2 Unsorted: the two files whose names say nothing
             self.put(f"note_{i}.txt", "tax filing")
         before_jpg = tree(self.inbox)["photo.jpg"]
         code, out = self.run_organizer()
         self.assertEqual(code, 0)
-        self.assertIn("Skipping photo.jpg: No text extracted.", out)
-        self.assertEqual(tree(self.inbox)["photo.jpg"], before_jpg)             # untouched
+        self.assertNotIn("Skipping", out)                                       # a file without text is still sorted, on name + path
+        self.assertNotIn("photo.jpg", os.listdir(self.inbox))
+        self.assertIn(before_jpg, [v for k, v in self.jd().items() if k.endswith("photo.jpg")])   # moved, bytes intact
         self.assertNotIn("scan_001.txt", os.listdir(self.inbox))                # renamed ...
-        self.assertTrue(any("11.01_Tax" in k for k in self.jd()))               # ... and routed
+        self.assertFalse(any(k.startswith("11.01_Tax") and "scan_001" in k for k in self.jd()))  # safeguard A: a nameless file is held, text cannot rescue it
+        self.assertTrue(any(k.startswith("11.01_Tax") for k in self.jd()))      # the named files are routed
         with open(self.log, encoding="utf-8") as f:
-            self.assertGreater(len(f.read().splitlines()), 150)                 # every step logged
+            self.assertGreater(len(f.read().splitlines()), 300)                 # every step logged
 
     def test_missing_index_stops_before_touching_anything(self):
         self.put("tax_a.txt")
@@ -146,18 +148,33 @@ class OrganizerE2E(unittest.TestCase):
         self.assertEqual(tree(self.root), before)
         self.assertFalse(os.path.exists(self.index))
 
-    def test_files_land_beside_the_index_not_the_target(self):
-        """Documents audit finding A3: the JD root is the index's folder."""
+    def test_files_land_in_dest_not_beside_the_index(self):
+        """Audit A3: the sorted folders go to --dest; the index's folder is never the silent destination."""
         elsewhere = os.path.join(self.tmp, "elsewhere")
+        dest = os.path.join(self.tmp, "sorted_here")
         os.makedirs(elsewhere)
-        with open(os.path.join(elsewhere, "tax_a.txt"), "w") as f:
-            f.write("x")
-        for i in range(150):
-            with open(os.path.join(elsewhere, f"tax_f{i}.txt"), "w") as f:
+        for name in ["tax_a.txt"] + [f"tax_f{i}.txt" for i in range(150)]:
+            with open(os.path.join(elsewhere, name), "w") as f:
                 f.write("x")
-        self.run_organizer("--fast-seed", target=elsewhere)
-        self.assertTrue(os.path.exists(os.path.join(self.root, "11.01_Tax", "tax_a.txt")))
-        self.assertFalse(os.path.exists(os.path.join(elsewhere, "tax_a.txt")))
+        code, out = self.run_organizer("--fast-seed", "--dest", dest, target=elsewhere)
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.exists(os.path.join(dest, "11.01_Tax", "tax_a.txt")))
+        self.assertFalse(os.path.exists(os.path.join(self.root, "11.01_Tax")))
+        self.assertIn(f"Sorted files go to: {dest}", out)
+        self.assertIn("Done:", out)
+
+    def test_without_dest_the_default_is_a_dated_desktop_folder_and_read_only_creates_nothing(self):
+        fake_home = os.path.join(self.tmp, "home")
+        os.makedirs(os.path.join(fake_home, "Desktop"))
+        self.put("tax_a.txt")
+        with mock.patch.object(utils.Path, "home", return_value=utils.Path(fake_home)):
+            expected = utils.default_sorted_root("2026-10-05")
+            self.assertEqual(expected, os.path.join(fake_home, "Desktop", "Sorted JD_2026-10-05"))
+            with mock.patch.object(organizer, "default_sorted_root", lambda: expected):
+                code, out = self.run_organizer("--read-only", "--dest", "")
+        self.assertEqual(code, 0)
+        self.assertIn(expected, out)
+        self.assertFalse(os.path.exists(expected))
 
 
 if __name__ == "__main__":

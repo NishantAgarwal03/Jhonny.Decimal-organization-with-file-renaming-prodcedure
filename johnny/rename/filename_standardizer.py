@@ -7,14 +7,18 @@ from johnny.core.utils import generate_safe_filename, safe_rename
 
 
 def _load_hints(kind):
-    """Optional personal name/place hints from local_hints.json (git-ignored): {"person": {token: Display}, "location": {...}}."""
-    path = os.environ.get("JOHNNY_HINTS") or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "local_hints.json")
-    try:
-        with open(path, encoding="utf-8") as handle:
-            return {str(key).lower(): str(value) for key, value in json.load(handle).get(kind, {}).items()}
-    except (OSError, ValueError, AttributeError):
-        return {}
-
+    """Personal name/place hints: local_hints.json (git-ignored) or JOHNNY_HINTS, else local_hints.example.json."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    paths = [os.environ.get("JOHNNY_HINTS"), os.path.join(root, "local_hints.json"), os.path.join(root, "local_hints.example.json")]
+    for path in paths:
+        if not path or not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as handle:
+                return {str(key).lower(): str(value) for key, value in json.load(handle).get(kind, {}).items()}
+        except (OSError, ValueError, AttributeError):
+            return {}
+    return {}
 
 
 WEAK_BASE_PATTERNS = [

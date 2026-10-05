@@ -13,12 +13,16 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from johnny.rename.filename_standardizer import FilenameStandardizer
+from johnny.core.evidence_engine import group_leftovers, summarize_closest, write_leftover_handoff_json
 from johnny.core.index_manager import IndexManager
 from johnny.core.nlp_engine import NLPEngine
-from johnny.core.planner import REVIEW_DIR, SAFE_DIR, SOFTWARE_DIR, SPECIAL_DIRS, is_managed_dir, relative_parent, split_files
+from johnny.core import sorting
+from johnny.core.planner import SPECIAL_DIRS, is_managed_dir
+from johnny.core.utils import default_sorted_root
+from johnny.core.sorting import plan_text
 from johnny.rename.rename_engine import ContextualRenamer
 from johnny.organize.router import Router
-from johnny.core.utils import sanitize_topic_name
+from johnny.ui.sort_settings_window import open_sort_settings
 
 
 APP_TITLE = "Johnny Organizer Prototype"
@@ -59,13 +63,6 @@ def iter_files(target_path: str, include_subfolders: bool):
                 yield path
 
 
-def plan_text(path: str) -> str:
-    """The text the UI routes on: filename + folder path, separators flattened."""
-    base, _ = os.path.splitext(os.path.basename(path))
-    clean_root = os.path.dirname(path).replace("\\", " ").replace("/", " ").replace("_", " ").replace("-", " ")
-    return f"{base.replace('_', ' ').replace('-', ' ')} {clean_root}"
-
-
 def count_folders_in_scope(target_path: str, include_subfolders: bool) -> int:
     target_path = os.path.abspath(target_path)
     if os.path.isfile(target_path):
@@ -85,9 +82,9 @@ class PrototypeApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("1080x700")
+        self.geometry("1240x800")
         self.configure(bg=APP_BG)
-        self.minsize(920, 620)
+        self.minsize(1100, 700)
 
         self.target_path = tk.StringVar()
         self.include_subfolders = tk.BooleanVar(value=False)
@@ -105,6 +102,9 @@ class PrototypeApp(tk.Tk):
         self.results_queue: queue.Queue = queue.Queue()
         self.worker = None
         self.current_preview_rows = []
+        self.folder_vote_moved = 0
+        self.sort_stats = {}
+        self.sort_settings = sorting.presets()["first"]   # the strict first pass until the user changes it
         self.organize_preview_state = {
             "Category Plan": {"rows": [], "reason_header": "Reason", "open_path": None, "alert_message": ""},
             "Apply Organization": {"rows": [], "reason_header": "Reason", "open_path": None, "alert_message": ""},
@@ -138,15 +138,14 @@ class PrototypeApp(tk.Tk):
 
     def _build_layout(self):
         shell = tk.Frame(self, bg=PANEL_BG, highlightbackground="#dce4df", highlightthickness=1)
-        shell.place(x=18, y=18, relwidth=0.976, relheight=0.964)
+        shell.pack(fill="both", expand=True, padx=18, pady=18)
 
-        self.sidebar = tk.Frame(shell, bg=SUBTLE_BG, highlightbackground="#e2e8e4", highlightthickness=1)
-        self.sidebar.place(x=20, y=20, width=230, relheight=0.94)
+        self.sidebar = tk.Frame(shell, bg=SUBTLE_BG, highlightbackground="#e2e8e4", highlightthickness=1, width=240)
+        self.sidebar.pack(side="left", fill="y", padx=20, pady=20)
+        self.sidebar.pack_propagate(False)
 
-        title = tk.Label(self.sidebar, text="Johnny Organizer", bg=SUBTLE_BG, fg=TEXT, font=("Segoe UI Semibold", 18))
-        title.place(x=18, y=20)
-        subtitle = tk.Label(self.sidebar, text="Workflow", bg=SUBTLE_BG, fg=MUTED, font=("Segoe UI", 12))
-        subtitle.place(x=20, y=55)
+        tk.Label(self.sidebar, text="Johnny Organizer", bg=SUBTLE_BG, fg=TEXT, font=("Segoe UI Semibold", 16)).pack(anchor="w", padx=18, pady=(20, 0))
+        tk.Label(self.sidebar, text="Workflow", bg=SUBTLE_BG, fg=MUTED, font=("Segoe UI", 12)).pack(anchor="w", padx=20, pady=(0, 24))
 
         self.step_buttons = {}
         steps = [
@@ -154,7 +153,6 @@ class PrototypeApp(tk.Tk):
             ("Rename", "Quick  |  Deep"),
             ("Organize", "Category Plan  |  Apply"),
         ]
-        y = 120
         for step, desc in steps:
             btn = tk.Button(
                 self.sidebar,
@@ -169,41 +167,28 @@ class PrototypeApp(tk.Tk):
                 font=("Segoe UI", 11),
                 command=lambda s=step: self._show_step(s),
             )
-            btn.place(x=18, y=y, width=190, height=78)
+            btn.pack(fill="x", padx=18, pady=(0, 16), ipady=14)
             self.step_buttons[step] = btn
-            y += 96
 
         faq = tk.Frame(self.sidebar, bg="white", highlightbackground="#e2e8e4", highlightthickness=1)
-        faq.place(x=18, rely=0.82, width=190, height=90)
-        tk.Label(faq, text="Help / FAQ", bg="white", fg=TEXT, font=("Segoe UI Semibold", 13)).place(x=16, y=12)
-        tk.Label(faq, text="Preview never changes files.", bg="white", fg=MUTED, font=("Segoe UI", 10)).place(x=16, y=48)
+        faq.pack(side="bottom", fill="x", padx=18, pady=18)
+        tk.Label(faq, text="Help / FAQ", bg="white", fg=TEXT, font=("Segoe UI Semibold", 13)).pack(anchor="w", padx=16, pady=(12, 0))
+        tk.Label(faq, text="Preview never changes files.", bg="white", fg=MUTED, font=("Segoe UI", 10), wraplength=180, justify="left").pack(anchor="w", padx=16, pady=(6, 12))
 
         self.main = tk.Frame(shell, bg=APP_BG)
-        self.main.place(x=270, y=20, relwidth=1.0, width=-290, relheight=0.94)
+        self.main.pack(side="left", fill="both", expand=True, padx=(0, 20), pady=20)
 
-        tk.Label(self.main, textvariable=self.current_step, bg=APP_BG, fg=TEXT, font=("Segoe UI Semibold", 28)).place(x=10, y=10)
-        self.step_subtitle = tk.Label(
-            self.main,
-            text="",
-            bg=APP_BG,
-            fg=MUTED,
-            font=("Segoe UI", 12),
-        )
-        self.step_subtitle.place(x=12, y=58)
+        header = tk.Frame(self.main, bg=APP_BG)
+        header.pack(fill="x", padx=10, pady=(0, 10))
+        tk.Label(header, textvariable=self.current_step, bg=APP_BG, fg=TEXT, font=("Segoe UI Semibold", 28)).pack(anchor="w")
+        self.step_subtitle = tk.Label(header, text="", bg=APP_BG, fg=MUTED, font=("Segoe UI", 12))
+        self.step_subtitle.pack(anchor="w", padx=2)
 
         self.summary_bar = tk.Frame(self.main, bg=ACCENT_SOFT, highlightbackground="#d6e3dc", highlightthickness=1)
-        self.summary_bar.place(x=10, y=105, relwidth=0.96, height=102)
-
-        summary_left = tk.Frame(self.summary_bar, bg=ACCENT_SOFT)
-        summary_left.pack(side="left", fill="both", expand=True, padx=(18, 8), pady=10)
-        tk.Label(summary_left, text="This operation affects", bg=ACCENT_SOFT, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w")
-        self.target_value = tk.Label(summary_left, text="No folder selected", bg=ACCENT_SOFT, fg=TEXT, font=("Segoe UI Semibold", 14))
-        self.target_value.pack(anchor="w", pady=(2, 0))
-        self.scope_value = tk.Label(summary_left, text="Scope: This folder only | Subfolders will not be changed | Mode: Preview only", bg=ACCENT_SOFT, fg=SUCCESS, font=("Segoe UI", 10))
-        self.scope_value.pack(anchor="w", pady=(6, 0))
+        self.summary_bar.pack(fill="x", padx=10, pady=(0, 14))
 
         self.summary_stats_row = tk.Frame(self.summary_bar, bg=ACCENT_SOFT)
-        self.summary_stats_row.place(x=244, y=9, width=320, height=58)
+        self.summary_stats_row.pack(side="right", padx=(8, 12), pady=10)
         self.stat_cards = []
         for label in ["Files", "Folders", "Weak names"]:
             card = tk.Frame(self.summary_stats_row, bg="white", width=92, height=58)
@@ -213,10 +198,19 @@ class PrototypeApp(tk.Tk):
             tk.Label(card, textvariable=self.summary_stats[label], bg="white", fg=TEXT, font=("Segoe UI Semibold", 10)).pack(anchor="w", padx=10, pady=(4, 0))
             self.stat_cards.append(card)
 
-        controls = tk.Frame(self.main, bg=APP_BG)
-        controls.place(x=10, y=222, relwidth=0.96, height=42)
+        summary_left = tk.Frame(self.summary_bar, bg=ACCENT_SOFT)
+        summary_left.pack(side="left", fill="both", expand=True, padx=(18, 8), pady=10)
+        tk.Label(summary_left, text="This operation affects", bg=ACCENT_SOFT, fg=MUTED, font=("Segoe UI", 10)).pack(anchor="w")
+        self.target_value = tk.Label(summary_left, text="No folder selected", bg=ACCENT_SOFT, fg=TEXT, font=("Segoe UI Semibold", 14))
+        self.target_value.pack(anchor="w", pady=(2, 0))
+        self.scope_value = tk.Label(summary_left, text="Scope: This folder only | Subfolders will not be changed | Mode: Preview only", bg=ACCENT_SOFT, fg=SUCCESS, font=("Segoe UI", 10), justify="left")
+        self.scope_value.pack(anchor="w", pady=(6, 0))
+        summary_left.bind("<Configure>", lambda e: self.scope_value.config(wraplength=max(e.width - 4, 200)))
 
-        tk.Button(controls, text="Choose folder", command=self._choose_folder, bg=ACCENT, fg="white", relief="flat", font=("Segoe UI Semibold", 10)).pack(side="left")
+        controls = tk.Frame(self.main, bg=APP_BG)
+        controls.pack(fill="x", padx=10, pady=(0, 14))
+
+        tk.Button(controls, text="Choose folder", command=self._choose_folder, bg=ACCENT, fg="white", relief="flat", font=("Segoe UI Semibold", 10)).pack(side="left", ipady=4)
         tk.Checkbutton(
             controls,
             text="Include subfolders",
@@ -236,48 +230,12 @@ class PrototypeApp(tk.Tk):
             relief="flat",
             font=("Segoe UI Semibold", 10),
         )
-        self.choose_index_button.pack(side="left")
+        self.choose_index_button.pack(side="left", ipady=4)
         self.index_label = tk.Label(controls, text=os.path.basename(self.index_path.get()), bg=APP_BG, fg=MUTED, font=("Segoe UI", 10))
         self.index_label.pack(side="left", padx=12)
+        self.sort_button = tk.Button(controls, text="Sorting settings...", command=self._open_sort_settings, bg="#edf2ef", fg=TEXT, relief="flat", font=("Segoe UI Semibold", 10))
         self.status_label = tk.Label(controls, textvariable=self.status_text, bg=APP_BG, fg="#b42318", font=("Segoe UI Semibold", 10))
         self.status_label.pack(side="right")
-
-        content = tk.Frame(self.main, bg=APP_BG)
-        content.place(x=10, y=278, relwidth=0.96, relheight=1.0, height=-340)
-
-        self.left_panel = tk.Frame(content, bg=PANEL_BG, highlightbackground="#e4eae6", highlightthickness=1)
-        self.left_panel.place(relx=0.0, rely=0.0, relwidth=0.50, relheight=1.0)
-        self.right_panel = tk.Frame(content, bg=SUBTLE_BG, highlightbackground="#e4eae6", highlightthickness=1)
-        self.right_panel.place(relx=0.52, rely=0.0, relwidth=0.48, relheight=1.0)
-
-        preview_head = tk.Frame(self.right_panel, bg=SUBTLE_BG)
-        preview_head.pack(fill="x", padx=20, pady=(18, 0))
-        self.preview_title = tk.Label(preview_head, text="Preview Summary", bg=SUBTLE_BG, fg=TEXT, font=("Segoe UI Semibold", 15))
-        self.preview_title.pack(anchor="w")
-        self.preview_hint = tk.Label(preview_head, text="Preview does not change any files.", bg=SUBTLE_BG, fg=SUCCESS, font=("Segoe UI", 10))
-        self.preview_hint.pack(anchor="w", pady=(2, 0))
-
-        table_wrap = tk.Frame(self.right_panel, bg=SUBTLE_BG)
-        table_wrap.pack(fill="both", expand=True, padx=20, pady=(12, 12))
-
-        self.preview_table = ttk.Treeview(table_wrap, columns=("current", "proposed", "reason"), show="headings")
-        self.preview_table.heading("current", text="Current")
-        self.preview_table.heading("proposed", text="Proposed / Output")
-        self.preview_table.heading("reason", text="Reason")
-        self.preview_table.column("current", width=210, anchor="w")
-        self.preview_table.column("proposed", width=210, anchor="w")
-        self.preview_table.column("reason", width=150, anchor="w")
-        preview_v_scroll = ttk.Scrollbar(table_wrap, orient="vertical", command=self.preview_table.yview)
-        preview_h_scroll = ttk.Scrollbar(self.right_panel, orient="horizontal", command=self.preview_table.xview)
-        self.preview_table.configure(yscrollcommand=preview_v_scroll.set, xscrollcommand=preview_h_scroll.set)
-        self.preview_table.pack(side="left", fill="both", expand=True)
-        preview_v_scroll.pack(side="right", fill="y")
-        preview_h_scroll.pack(fill="x", padx=20, pady=(0, 8))
-
-        preview_actions = tk.Frame(self.right_panel, bg=SUBTLE_BG)
-        preview_actions.pack(fill="x", padx=20, pady=(0, 20))
-        self.preview_open_button = tk.Button(preview_actions, text="View output", relief="flat", bg="#edf2ef", fg=TEXT, command=self._open_last_output, state="disabled")
-        self.preview_open_button.pack(side="left", ipadx=10, ipady=6)
 
         self.footer_note = tk.Label(
             self.main,
@@ -286,7 +244,47 @@ class PrototypeApp(tk.Tk):
             fg=MUTED,
             font=("Segoe UI", 10),
         )
-        self.footer_note.place(x=12, rely=1.0, y=-28)
+        self.footer_note.pack(side="bottom", anchor="w", padx=12, pady=(8, 0))
+
+        content = tk.Frame(self.main, bg=APP_BG)
+        content.pack(fill="both", expand=True, padx=10)
+        content.columnconfigure(0, weight=11)
+        content.columnconfigure(1, weight=9)
+        content.rowconfigure(0, weight=1)
+
+        self.left_panel = tk.Frame(content, bg=PANEL_BG, highlightbackground="#e4eae6", highlightthickness=1)
+        self.left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        self.right_panel = tk.Frame(content, bg=SUBTLE_BG, highlightbackground="#e4eae6", highlightthickness=1)
+        self.right_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+
+        preview_head = tk.Frame(self.right_panel, bg=SUBTLE_BG)
+        preview_head.pack(fill="x", padx=20, pady=(18, 0))
+        self.preview_title = tk.Label(preview_head, text="Preview Summary", bg=SUBTLE_BG, fg=TEXT, font=("Segoe UI Semibold", 15))
+        self.preview_title.pack(anchor="w")
+        self.preview_hint = tk.Label(preview_head, text="Preview does not change any files.", bg=SUBTLE_BG, fg=SUCCESS, font=("Segoe UI", 10))
+        self.preview_hint.pack(anchor="w", pady=(2, 0))
+
+        preview_actions = tk.Frame(self.right_panel, bg=SUBTLE_BG)
+        preview_actions.pack(side="bottom", fill="x", padx=20, pady=(0, 16))
+        self.preview_open_button = tk.Button(preview_actions, text="View output", relief="flat", bg="#edf2ef", fg=TEXT, command=self._open_last_output, state="disabled")
+        self.preview_open_button.pack(side="left", ipadx=10, ipady=6)
+
+        table_wrap = tk.Frame(self.right_panel, bg=SUBTLE_BG)
+        table_wrap.pack(fill="both", expand=True, padx=20, pady=(12, 8))
+
+        self.preview_table = ttk.Treeview(table_wrap, columns=("current", "proposed", "reason"), show="headings")
+        self.preview_table.heading("current", text="Current")
+        self.preview_table.heading("proposed", text="Proposed / Output")
+        self.preview_table.heading("reason", text="Reason")
+        self.preview_table.column("current", width=100, minwidth=70, anchor="w", stretch=True)
+        self.preview_table.column("proposed", width=100, minwidth=70, anchor="w", stretch=True)
+        self.preview_table.column("reason", width=60, minwidth=50, anchor="w", stretch=True)
+        preview_v_scroll = ttk.Scrollbar(table_wrap, orient="vertical", command=self.preview_table.yview)
+        preview_h_scroll = ttk.Scrollbar(table_wrap, orient="horizontal", command=self.preview_table.xview)
+        self.preview_table.configure(yscrollcommand=preview_v_scroll.set, xscrollcommand=preview_h_scroll.set)
+        preview_h_scroll.pack(side="bottom", fill="x")
+        preview_v_scroll.pack(side="right", fill="y")
+        self.preview_table.pack(side="left", fill="both", expand=True)
 
         self.last_output_path = None
 
@@ -294,39 +292,41 @@ class PrototypeApp(tk.Tk):
         self._build_rename_panel()
         self._build_organize_panel()
 
+    def _action_bar(self, panel):
+        bar = tk.Frame(panel, bg=PANEL_BG)
+        bar.pack(side="bottom", fill="x", padx=24, pady=(0, 16))
+        return bar
+
     def _build_scan_panel(self):
         self.scan_panel = tk.Frame(self.left_panel, bg=PANEL_BG)
+        action_bar = self._action_bar(self.scan_panel)
         body = tk.Frame(self.scan_panel, bg=PANEL_BG)
         body.pack(fill="both", expand=True, padx=24, pady=(22, 12))
-        action_bar = tk.Frame(self.scan_panel, bg=PANEL_BG)
-        action_bar.pack(side="bottom", fill="x", padx=24, pady=(0, 16))
 
-        tk.Label(body, text="Create File Log", bg=PANEL_BG, fg=TEXT, font=("Segoe UI Semibold", 18)).place(x=0, y=0)
-        tk.Label(body, text="What this does", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 12)).place(x=0, y=46)
+        tk.Label(body, text="Create File Log", bg=PANEL_BG, fg=TEXT, font=("Segoe UI Semibold", 18)).pack(anchor="w")
+        tk.Label(body, text="What this does", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 12)).pack(anchor="w", pady=(10, 6))
         scan_lines = [
             "Scans the selected folder using the current scope",
             "Creates a full inventory log without changing files",
             "Prepares the next steps for Rename and Organize",
         ]
-        for idx, line in enumerate(scan_lines):
-            tk.Label(body, text=f"• {line}", bg=PANEL_BG, fg=MUTED, font=("Segoe UI", 10)).place(x=2, y=90 + idx * 34)
-        tk.Label(body, text="Output files", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 12)).place(x=0, y=238)
-        self.scan_output_label = tk.Label(body, text="No output created yet", bg=PANEL_BG, fg=MUTED, justify="left", anchor="w", font=("Segoe UI", 10))
-        self.scan_output_label.place(x=0, y=272)
+        for line in scan_lines:
+            tk.Label(body, text=f"• {line}", bg=PANEL_BG, fg=MUTED, font=("Segoe UI", 10), justify="left", wraplength=300).pack(anchor="w", padx=2, pady=3)
+        tk.Label(body, text="Output files", bg=PANEL_BG, fg=TEXT, font=("Segoe UI", 12)).pack(anchor="w", pady=(16, 4))
+        self.scan_output_label = tk.Label(body, text="No output created yet", bg=PANEL_BG, fg=MUTED, justify="left", anchor="w", font=("Segoe UI", 10), wraplength=300)
+        self.scan_output_label.pack(anchor="w")
         tk.Button(action_bar, text="Create File Log", bg=ACCENT, fg="white", relief="flat", font=("Segoe UI Semibold", 11), command=self._scan_create_log).pack(side="left", ipadx=18, ipady=8)
 
     def _build_rename_panel(self):
         self.rename_panel = tk.Frame(self.left_panel, bg=PANEL_BG)
+        action_bar = self._action_bar(self.rename_panel)
         body = tk.Frame(self.rename_panel, bg=PANEL_BG)
         body.pack(fill="both", expand=True, padx=24, pady=(22, 12))
-        action_bar = tk.Frame(self.rename_panel, bg=PANEL_BG, width=340, height=44)
-        action_bar.pack(side="bottom", anchor="w", padx=24, pady=(0, 16))
-        action_bar.pack_propagate(False)
 
-        tk.Label(body, text="Rename Files", bg=PANEL_BG, fg=TEXT, font=("Segoe UI Semibold", 18)).place(x=0, y=0)
+        tk.Label(body, text="Rename Files", bg=PANEL_BG, fg=TEXT, font=("Segoe UI Semibold", 18)).pack(anchor="w")
         self.rename_mode = tk.StringVar(value="Quick")
         tabs = tk.Frame(body, bg=PANEL_BG)
-        tabs.place(x=0, y=46)
+        tabs.pack(anchor="w", pady=(10, 12))
         for idx, mode in enumerate(["Quick", "Deep"]):
             tk.Radiobutton(
                 tabs,
@@ -334,33 +334,31 @@ class PrototypeApp(tk.Tk):
                 variable=self.rename_mode,
                 value=mode,
                 indicatoron=False,
-                width=12,
+                width=10,
                 command=self._refresh_rename_copy,
                 bg="#edf2ef",
                 selectcolor=ACCENT_SOFT,
                 relief="flat",
                 font=("Segoe UI Semibold", 10),
             ).grid(row=0, column=idx, padx=(0, 10))
-        self.rename_desc = tk.Label(body, text="", bg=PANEL_BG, fg=MUTED, justify="left", font=("Segoe UI", 10))
-        self.rename_desc.place(x=0, y=98)
+        self.rename_desc = tk.Label(body, text="", bg=PANEL_BG, fg=MUTED, justify="left", font=("Segoe UI", 10), wraplength=300)
+        self.rename_desc.pack(anchor="w")
         self.rename_preview_button = tk.Button(action_bar, text="Preview Rename", bg="#edf2ef", fg=TEXT, relief="flat", font=("Segoe UI Semibold", 11), command=self._rename_preview)
-        self.rename_preview_button.place(x=0, y=0, width=165, height=44)
+        self.rename_preview_button.pack(side="left", ipadx=8, ipady=8)
         self.rename_apply_button = tk.Button(action_bar, text="Apply Rename", bg=ACCENT, fg="white", relief="flat", font=("Segoe UI Semibold", 11), command=self._rename_apply)
-        self.rename_apply_button.place(x=185, y=0, width=145, height=44)
+        self.rename_apply_button.pack(side="left", padx=(10, 0), ipadx=8, ipady=8)
         self._refresh_rename_copy()
 
     def _build_organize_panel(self):
         self.organize_panel = tk.Frame(self.left_panel, bg=PANEL_BG)
+        action_bar = self._action_bar(self.organize_panel)
         body = tk.Frame(self.organize_panel, bg=PANEL_BG)
         body.pack(fill="both", expand=True, padx=24, pady=(22, 12))
-        action_bar = tk.Frame(self.organize_panel, bg=PANEL_BG, width=340, height=44)
-        action_bar.pack(side="bottom", anchor="w", padx=24, pady=(0, 16))
-        action_bar.pack_propagate(False)
 
-        tk.Label(body, text="Organize Files", bg=PANEL_BG, fg=TEXT, font=("Segoe UI Semibold", 18)).place(x=0, y=0)
+        tk.Label(body, text="Organize Files", bg=PANEL_BG, fg=TEXT, font=("Segoe UI Semibold", 18)).pack(anchor="w")
         self.organize_mode = tk.StringVar(value="Category Plan")
         tabs = tk.Frame(body, bg=PANEL_BG)
-        tabs.place(x=0, y=46)
+        tabs.pack(anchor="w", pady=(10, 12))
         for idx, mode in enumerate(["Category Plan", "Apply Organization"]):
             tk.Radiobutton(
                 tabs,
@@ -368,15 +366,15 @@ class PrototypeApp(tk.Tk):
                 variable=self.organize_mode,
                 value=mode,
                 indicatoron=False,
-                width=18,
+                width=17,
                 command=self._refresh_organize_copy,
                 bg="#edf2ef",
                 selectcolor=ACCENT_SOFT,
                 relief="flat",
                 font=("Segoe UI Semibold", 10),
             ).grid(row=0, column=idx, padx=(0, 10))
-        self.organize_desc = tk.Label(body, text="", bg=PANEL_BG, fg=MUTED, justify="left", font=("Segoe UI", 10))
-        self.organize_desc.place(x=0, y=98)
+        self.organize_desc = tk.Label(body, text="", bg=PANEL_BG, fg=MUTED, justify="left", font=("Segoe UI", 10), wraplength=300)
+        self.organize_desc.pack(anchor="w")
         self.organize_secondary_button = tk.Button(
             action_bar,
             text="Create Plan",
@@ -386,7 +384,7 @@ class PrototypeApp(tk.Tk):
             font=("Segoe UI Semibold", 11),
             command=self._organize_preview,
         )
-        self.organize_secondary_button.place(x=0, y=0, width=165, height=44)
+        self.organize_secondary_button.pack(side="left", ipadx=8, ipady=8)
         self.organize_primary_button = tk.Button(
             action_bar,
             text="Open Index",
@@ -396,7 +394,7 @@ class PrototypeApp(tk.Tk):
             font=("Segoe UI Semibold", 11),
             command=self._open_index_file,
         )
-        self.organize_primary_button.place(x=185, y=0, width=145, height=44)
+        self.organize_primary_button.pack(side="left", padx=(10, 0), ipadx=8, ipady=8)
         self._refresh_organize_copy()
 
     def _show_step(self, step):
@@ -410,15 +408,19 @@ class PrototypeApp(tk.Tk):
         for name, btn in self.step_buttons.items():
             btn.configure(bg="#eef5f1" if name == step else "white")
         for widget in self.left_panel.winfo_children():
-            widget.place_forget()
+            widget.pack_forget()
         if step == "Scan":
-            self.scan_panel.place(relwidth=1.0, relheight=1.0)
+            self.scan_panel.pack(fill="both", expand=True)
         elif step == "Rename":
-            self.rename_panel.place(relwidth=1.0, relheight=1.0)
+            self.rename_panel.pack(fill="both", expand=True)
         else:
-            self.organize_panel.place(relwidth=1.0, relheight=1.0)
+            self.organize_panel.pack(fill="both", expand=True)
         self._refresh_target_summary()
         self._update_index_picker_state()
+        if step == "Organize":
+            self.sort_button.pack(side="left", padx=(0, 12), ipady=4, before=self.status_label)
+        else:
+            self.sort_button.pack_forget()
 
     def _refresh_rename_copy(self):
         if self.rename_mode.get() == "Quick":
@@ -1028,30 +1030,42 @@ class PrototypeApp(tk.Tk):
         categories = list(idx.data.get("categories", {}).keys())
         nlp = NLPEngine(categories, category_profiles=idx.profiles)
         file_paths = list(iter_files(target, self.include_subfolders.get()))
-        units, junk, routed = split_files(target, file_paths)
-        planned_items = []
-        grouped = Counter()
+        # Preview and Apply both build this plan with the same settings, so they always agree (source == preview == moved still holds).
+        # Big jobs cache the file texts' embeddings: only the buckets change between rounds, so a re-check takes seconds.
+        def cache_for():
+            session_dir = PROJECT_DIR / "runs" / safe_session_name(target)
+            session_dir.mkdir(parents=True, exist_ok=True)
+            return str(session_dir / "file_embeddings.npz")
 
-        for unit, count in units.items():
-            planned_items.append({"path": unit, "topic": None, "destination": SOFTWARE_DIR, "count": count, "rel": relative_parent(target, unit)})
-            grouped[SOFTWARE_DIR] += count
-        for path, tier in junk.items():
-            destination = SAFE_DIR if tier == "safe" else REVIEW_DIR
-            planned_items.append({"path": path, "topic": None, "destination": destination, "count": 1, "rel": relative_parent(target, path)})
-            grouped[destination] += 1
-
-        for path in routed:
-            topic = nlp.get_topic(plan_text(path))
-            code = idx.get_category_prefix(topic)
-            if not code:
-                topic = "Unsorted_Miscellaneous"
-                code = idx.get_category_prefix(topic) or "80.01"
-            destination_folder = f"{code}_{sanitize_topic_name(topic)}"
-            planned_items.append({"path": path, "topic": topic, "destination": destination_folder, "count": 1})
-            grouped[destination_folder] += 1
+        # One shared function plans everything; the 1/150 guard (_index_preview_failed) counts Unsorted after it.
+        planned_items, grouped, stats = sorting.plan_organization(idx, nlp, target, file_paths, self.sort_settings, cache_for=cache_for)
+        self.sort_stats = stats
+        self.folder_vote_moved = stats["voted"]
 
         summary_rows = [(folder, str(count), "planned file(s)") for folder, count in grouped.most_common()]
         return file_paths, planned_items, summary_rows
+
+    def _open_sort_settings(self):
+        open_sort_settings(self, self.sort_settings, self._apply_sort_settings)
+
+    def _apply_sort_settings(self, settings):
+        self.sort_settings = settings
+        self.status_text.set("Settings changed. Run Preview Organization to see the effect.")
+
+    def _write_leftover_handoff(self, idx, target, planned_items, rows):
+        """After a failed 1/150 check: the files left in Unsorted, grouped, with the closest buckets, for the next LLM round."""
+        unsorted = [os.path.relpath(i["path"], target) for i in planned_items if i["topic"] == "Unsorted_Miscellaneous"]
+        needing = sum(int(r[1]) for r in rows if str(r[0]) not in SPECIAL_DIRS)
+        nlp = NLPEngine(list(idx.data["categories"]), category_profiles=idx.profiles)
+
+        def nearest(sample_paths):
+            return summarize_closest([nlp.get_category_candidates(plan_text(os.path.join(target, rel)), top_k=1) for rel in sample_paths])
+
+        session_dir = PROJECT_DIR / "runs" / safe_session_name(target)
+        session_dir.mkdir(parents=True, exist_ok=True)
+        out = session_dir / "llm_leftovers_handoff.json"
+        write_leftover_handoff_json(out, session_dir.name, idx.data, group_leftovers(unsorted, nearest), len(unsorted), needing // 150, needing)
+        return out
 
     def _get_index_failure_alert(self, total_files: int, rows) -> str:
         if self._index_preview_failed(total_files, rows):
@@ -1073,17 +1087,24 @@ class PrototypeApp(tk.Tk):
                     self.results_queue.put(("preview", {"rows": rows, "reason_header": "Type", "message": f"Loaded {len(rows)} JD categories", "open_path": self.index_path.get()}))
                     return
 
-                file_paths, _, rows = self._build_organization_plan(idx, target)
+                file_paths, planned_items, rows = self._build_organization_plan(idx, target)
                 planned_total = sum(int(row[1]) for row in rows)
                 if planned_total != len(file_paths):
                     raise ValueError(f"Sanity check failed during preview: source files={len(file_paths)}, preview total={planned_total}")
+                alert = self._get_index_failure_alert(planned_total, rows)
+                leftovers = self._write_leftover_handoff(idx, target, planned_items, rows) if alert else None
                 self.results_queue.put((
                     "preview",
                     {
                         "rows": rows or [("No files found", "0", "planned file(s)")],
                         "reason_header": "Status",
-                        "message": f"Preview ready: {planned_total} file(s) across {len(rows)} JD folder(s)",
-                        "alert_message": self._get_index_failure_alert(planned_total, rows),
+                        "message": f"Preview ready: {planned_total} file(s) across {len(rows)} JD folder(s)"
+                        + (f"; {self.folder_vote_moved} followed their folder" if self.folder_vote_moved else "")
+                        + f"; left for the next pass: {self.sort_stats['unsorted']} (limit {self.sort_stats['allowed']})"
+                        + f". Settings used: lead {self.sort_settings.lead:.3f}, vote {'off' if not self.sort_settings.vote else f'{self.sort_settings.vote_share:.0%}'}"
+                        + (f". Leftover file for the next LLM round: {leftovers}" if leftovers else ""),
+                        "alert_message": alert,
+                        "open_path": str(leftovers) if leftovers else None,
                     },
                 ))
             except Exception as exc:
@@ -1098,8 +1119,19 @@ class PrototypeApp(tk.Tk):
         if self.organize_mode.get() != "Apply Organization":
             messagebox.showinfo(APP_TITLE, "Switch to 'Apply Organization' before running this action.")
             return
-        if not messagebox.askyesno(APP_TITLE, f"Apply organization to:\n{target}\n\nFiles will be moved into JD folders using:\n{self.index_path.get()}"):
-            return
+        dest = default_sorted_root()
+        while True:
+            answer = messagebox.askyesnocancel(
+                APP_TITLE,
+                f"Apply organization to:\n{target}\n\nSorted files will be moved into:\n{dest}\n\nYes = go ahead   No = choose another folder   Cancel = stop",
+            )
+            if answer is None:
+                return
+            if answer:
+                break
+            chosen = filedialog.askdirectory(title="Choose where the sorted folders go", initialdir=os.path.dirname(dest) or None)
+            if chosen:
+                dest = os.path.abspath(chosen)
         self.mode_label.set("Apply changes")
         self._refresh_target_summary()
 
@@ -1114,7 +1146,7 @@ class PrototypeApp(tk.Tk):
                 if self._index_preview_failed(preview_total, preview_rows):
                     raise ValueError("Apply blocked: index failed the 1/150 unsorted rule.")
 
-                router = Router(idx, os.path.dirname(self.index_path.get()) or ".")
+                router = Router(idx, dest)
                 moved_counts = Counter()
                 moved_total = 0
                 for item in planned_items:
@@ -1139,16 +1171,21 @@ class PrototypeApp(tk.Tk):
                         "reason_header": "Status",
                         "message": f"Organization complete: source={source_total}, preview={preview_total}, moved={moved_total}",
                         "alert_message": self._get_index_failure_alert(moved_total, rows),
+                        "open_path": dest,
                     },
                 ))
                 self.results_queue.put(("done", "Organization complete"))
                 self.mode_label.set("Preview only")
                 self.after(0, self._refresh_target_summary)
                 self.after(0, self._estimate_target_stats)
+                self.after(0, lambda: self._notify_sorted(moved_total, dest))
             except Exception as exc:
                 self.results_queue.put(("error", str(exc)))
 
         self._run_async(worker, "Applying organization...")
+
+    def _notify_sorted(self, moved_total, dest):
+        messagebox.showinfo(APP_TITLE, f"Sorted {moved_total} file(s) into:\n{dest}\n\nUse the Open button to see the folder. Every move is logged in undo_log.jsonl.")
 
 
 def main():

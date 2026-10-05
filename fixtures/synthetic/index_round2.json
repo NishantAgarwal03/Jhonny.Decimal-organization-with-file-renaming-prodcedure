@@ -1,0 +1,288 @@
+{
+  "categories": {
+    "Engineering_Lectures_Notes": "10.01",
+    "Programming_Video_Courses": "20.01",
+    "Software_and_Installers": "30.01",
+    "Bills_Tax_Finance": "40.01",
+    "ID_and_Legal_Papers": "40.02",
+    "Photos_Videos_Family": "50.01",
+    "Music_Library": "60.01",
+    "Movies_and_TV": "60.02",
+    "Books_and_Ebooks": "70.01",
+    "Work_and_Client_Projects": "80.01",
+    "Health_Records": "90.01",
+    "Travel_Documents": "90.02",
+    "Unsorted_Miscellaneous": "99.01"
+  },
+  "incubation": {},
+  "profiles": {
+    "Engineering_Lectures_Notes": {
+      "description": "Civil engineering lectures, course notes and study material.",
+      "aliases": [
+        "NPTEL",
+        "lecture",
+        "Mod Lec",
+        "engineering",
+        "notes unit",
+        "soil mechanics",
+        "structural analysis",
+        "hydrology",
+        "concrete",
+        "surveying",
+        "assignment"
+      ],
+      "positive_examples": [
+        "Mod-01 Lec-01 Soil Mechanics.mp4",
+        "Hydrology Notes Unit 3.pdf"
+      ]
+    },
+    "Programming_Video_Courses": {
+      "description": "Programming video courses, subtitles, slides and exercise code.",
+      "aliases": [
+        "Udemy",
+        "course",
+        "lesson",
+        "Python",
+        "JavaScript",
+        "SQL",
+        "GitHub",
+        "Django",
+        "machine learning",
+        "exercise",
+        "tutorial"
+      ],
+      "positive_examples": [
+        "Python Basics - Lesson 1.mp4",
+        "exercise_03.py",
+        "SQL Masterclass slides.pdf"
+      ]
+    },
+    "Software_and_Installers": {
+      "description": "Software packages: installers, setup programs, libraries, language packs, icons and the documents shipped inside a package.",
+      "aliases": [
+        "Software",
+        "setup",
+        "installer",
+        "dll",
+        "x64",
+        "exe",
+        "msi",
+        "locales",
+        "libs",
+        "uninstall",
+        "config.xml",
+        "qt5core",
+        "avcodec",
+        "msvcp",
+        "libssl",
+        "pak",
+        "resources icon",
+        "WinRAR",
+        "Audacity",
+        "Notepad++",
+        "Adobe Reader",
+        "Office 2019",
+        "PyCharm",
+        "VLC",
+        "7-Zip",
+        "Chrome Offline Installer",
+        "Python 3.11 Lib"
+      ],
+      "positive_examples": [
+        "setup.exe",
+        "config.xml",
+        "qt5core-5.dll",
+        "avcodec-6.dll",
+        "license.txt inside a software package",
+        "manual.pdf inside a software package"
+      ]
+    },
+    "Bills_Tax_Finance": {
+      "description": "Bills, bank and card statements, tax returns and receipts.",
+      "aliases": [
+        "bill",
+        "bank statement",
+        "electricity",
+        "water",
+        "tax",
+        "Form 16",
+        "ITR",
+        "receipt",
+        "credit card",
+        "premium",
+        "finance"
+      ],
+      "positive_examples": [
+        "Electricity Bill March 2021.pdf",
+        "Form 16 2022.pdf",
+        "Bank Statement May 2020.pdf"
+      ]
+    },
+    "ID_and_Legal_Papers": {
+      "description": "Identity cards, certificates and legal documents.",
+      "aliases": [
+        "passport",
+        "Aadhaar",
+        "PAN card",
+        "licence",
+        "voter ID",
+        "certificate",
+        "agreement",
+        "deed",
+        "affidavit",
+        "legal",
+        "identity"
+      ],
+      "positive_examples": [
+        "Passport Scan.pdf",
+        "Rental Agreement 2021.pdf",
+        "Driving Licence.jpg"
+      ]
+    },
+    "Photos_Videos_Family": {
+      "description": "Family photos and videos kept in event folders with camera-style names.",
+      "aliases": [
+        "Photos",
+        "IMG",
+        "DSC",
+        "PXL",
+        "VID",
+        "Birthday Party",
+        "Diwali",
+        "Wedding",
+        "School Annual Day",
+        "Family Reunion",
+        "Summer Holidays",
+        "Goa Trip"
+      ],
+      "positive_examples": [
+        "IMG_0123.jpg",
+        "VID_20190528_211038.mp4",
+        "DSC18260.jpg"
+      ]
+    },
+    "Music_Library": {
+      "description": "Songs and albums by artists: files named 'Artist - Title' or 'NN - Title' inside artist and album folders, plus devotional audio.",
+      "aliases": [
+        "Music",
+        "Artist - Title",
+        "album",
+        "mp3",
+        "Static Garden",
+        "Luna Park",
+        "Anand Sagar",
+        "Saffron Road",
+        "Echo Valley",
+        "Dev Malhotra",
+        "Meera Joshi",
+        "Blue River Band",
+        "Iron Tides",
+        "Velvet Hours",
+        "bhajan",
+        "aarti",
+        "kirtan",
+        "ghazal"
+      ],
+      "positive_examples": [
+        "Static Garden - Falling Leaves 1.mp3",
+        "01 - Slow Rain 2.mp3",
+        "Bhajan Sangrah 01.mp3",
+        "Luna Park - Last Summer 32.mp3"
+      ]
+    },
+    "Movies_and_TV": {
+      "description": "Movies, TV shows, seasons and subtitles.",
+      "aliases": [
+        "Movies",
+        "Shows",
+        "Season",
+        "episode",
+        "mkv",
+        "1080p",
+        "720p",
+        "subtitles",
+        "poster",
+        "film"
+      ],
+      "positive_examples": [
+        "The Last Harbor (2018) 1080p.mkv",
+        "Harbor Lights S01E03.mp4"
+      ]
+    },
+    "Books_and_Ebooks": {
+      "description": "Books, novels and ebooks with covers and metadata, organised by author.",
+      "aliases": [
+        "Books",
+        "ebook",
+        "epub",
+        "novel",
+        "author",
+        "metadata",
+        "opf",
+        "technical book",
+        "Authors"
+      ],
+      "positive_examples": [
+        "The Salt Road - Sunita Rao.epub",
+        "metadata.opf",
+        "Hugo Brandt - Quiet Engines 8.pdf"
+      ]
+    },
+    "Work_and_Client_Projects": {
+      "description": "Client work: project reports, proposals, drawings, invoices and meeting minutes.",
+      "aliases": [
+        "Work",
+        "client",
+        "project",
+        "status report",
+        "proposal",
+        "BOQ",
+        "drawing",
+        "site visit",
+        "meeting minutes",
+        "invoice"
+      ],
+      "positive_examples": [
+        "Project 412 Status Report March.docx",
+        "Client Proposal Apex Infra.pptx",
+        "BOQ 412.xlsx"
+      ]
+    },
+    "Health_Records": {
+      "description": "Medical reports, prescriptions, insurance claims and vaccination records.",
+      "aliases": [
+        "Health",
+        "blood test",
+        "prescription",
+        "X-Ray",
+        "doctor",
+        "insurance claim",
+        "vaccination",
+        "dental",
+        "ECG",
+        "medical"
+      ],
+      "positive_examples": [
+        "Blood Test Report May 2022.pdf",
+        "Prescription Dr Mehta.jpg"
+      ]
+    },
+    "Travel_Documents": {
+      "description": "Tickets, hotel bookings, itineraries and visas for trips.",
+      "aliases": [
+        "Travel",
+        "flight ticket",
+        "hotel booking",
+        "itinerary",
+        "boarding pass",
+        "train ticket",
+        "visa",
+        "trip"
+      ],
+      "positive_examples": [
+        "Flight Ticket Delhi to Goa.pdf",
+        "Hotel Booking Kochi.pdf"
+      ]
+    }
+  }
+}

@@ -1,6 +1,6 @@
 import os
 from johnny.core.planner import write_note
-from johnny.core.utils import sanitize_topic_name, safe_rename
+from johnny.core.utils import sanitize_topic_name, safe_rename, unique_path
 
 class Router:
     def __init__(self, index_manager, root_dir):
@@ -38,14 +38,7 @@ class Router:
         base_name = os.path.basename(source)
         dest_path = os.path.join(target_dir, base_name)
         if dest_path != source:
-            # Avoid overwrite if file magically has same name in destination by adding counter here
-            # But normally generate_safe_filename prevents this.
-            counter = 1
-            while os.path.exists(dest_path):
-                name, ext = os.path.splitext(base_name)
-                dest_path = os.path.join(target_dir, f"{name}_{counter}{ext}")
-                counter += 1
-            
+            dest_path = unique_path(dest_path)
             try:
                 safe_rename(source, dest_path)
             except Exception as e:

@@ -49,7 +49,8 @@ master_index.json  {"categories": {name: "NN.NN"}, "incubation": {}}
   ↓
 nlp_engine.get_topic_details  (embedding match + abstention → Unsorted_Miscellaneous)
   ↓ johnny/core/planner.py splits files first: software units (whole folders), junk (safe / review), routed
-  ↓ 1/150 unsorted guard (routed files only)
+  ↓ planner.folder_vote: refused files follow a clean folder (>= 80% of 20+ files nearest to one bucket)
+  ↓ 1/150 unsorted guard (routed files only, counted after the vote)
 johnny/organize/router.py → <root>/NN.NN_Category/<file>   (units → _Software_Projects, junk → _Temp_Safe_To_Remove / _Temp_Review_First)
 ```
 
@@ -66,13 +67,14 @@ Related but separate: `johnny/scan/fast_seed_csv.py` batch-labels a scan CSV aga
 | `johnny/core/evidence_engine.py` | Token evidence, weighting, taxonomy-size heuristic, handoff JSON | none |
 | `johnny/scan/drive_context_analyzer.py` | CLI driver for evidence generation | `evidence_engine` |
 | `johnny/core/index_manager.py` | Read/write `master_index.json`, mint JD codes | none |
-| `johnny/core/planner.py` | Rule pre-pass: junk tiers, software/environment units, managed folder names | none |
+| `johnny/core/planner.py` | Rule pre-pass: junk tiers, software/environment units, managed folder names; `folder_vote`, `has_information` | none |
 | `johnny/organize/router.py` | Move a file (or a whole unit) into its folder, collision-safe | `index_manager`, `planner`, `utils` |
-| `johnny/organize/organizer.py` | CLI: route + rename a folder, with the 1/150 guard | the above |
-| `johnny/ui/jd_ui_prototype.py` | Tkinter UI over all of the above; has its own copy of the organize plan logic | the above |
+| `johnny/core/sorting.py` | The one decision of each file's bucket: model -> no-information rule -> folder vote with type check; settings, limits, presets (first / second pass) | planner, embedding_manager |
+| `johnny/organize/organizer.py` | CLI: plan through `sorting.plan_organization`, rename, route, with the 1/150 guard | the above |
+| `johnny/ui/jd_ui_prototype.py` | Tkinter UI over all of the above; its organize plan calls `sorting.plan_organization`. `johnny/ui/sort_settings_window.py` is the Sorting settings window | the above |
 | `johnny/tools/jd_benchmark.py` | Labelled-fixture benchmark and threshold grid search | `nlp_engine` |
 
-The UI and `johnny/organize/organizer.py` build their plans separately and differ. The UI embeds filename + folder path only. `johnny/organize/organizer.py` embeds extracted document text unless `--fast-seed` is set.
+The UI and `johnny/organize/organizer.py` build their plans with the same function. The UI embeds filename + folder path + file type only; the CLI adds extracted document text unless `--fast-seed` is set, and never skips a file for lacking text.
 
 ## Do not change
 

@@ -60,13 +60,18 @@ class EmbeddingManager:
     def _prefix_texts(self, texts, prefix):
         return [f"{prefix}: {text}".strip() for text in texts]
 
+    @staticmethod
+    def _wants_prefix(model_name):
+        """Only the E5 family was trained with "query: " / "passage: " prefixes; other models (e.g. GTE) must get the plain text."""
+        return "e5" in (model_name or DEFAULT_MODEL_NAME).lower()
+
     def encode_queries(self, texts, model_name=None):
         model = self.get_model(model_name)
-        return model.encode(self._prefix_texts(texts, "query"), normalize_embeddings=True)
+        return model.encode(self._prefix_texts(texts, "query") if self._wants_prefix(model_name) else list(texts), normalize_embeddings=True)
 
     def encode_passages(self, texts, model_name=None):
         model = self.get_model(model_name)
-        return model.encode(self._prefix_texts(texts, "passage"), normalize_embeddings=True)
+        return model.encode(self._prefix_texts(texts, "passage") if self._wants_prefix(model_name) else list(texts), normalize_embeddings=True)
 
     def get_category_embeddings(self, texts, cache_key, model_name=None):
         model_name = model_name or DEFAULT_MODEL_NAME
@@ -97,17 +102,20 @@ def missing_profiles(categories, profiles):
 
 
 def load_routing_calibration(path=None):
+    # The file wins when present, so the fallbacks below must equal it (0.18 / 0.01 / 0.12), or deleting the file silently changes results.
+    # The lead (top1_top2_margin_threshold) was lowered from 0.02 to 0.01: on the E: scan 99.4% of the refused files failed that rule alone,
+    # and on the synthetic judge (fixtures/synthetic) it trades about 6 more correct sorts for each extra wrong folder. See CHECKPOINT.md.
     path = Path(path) if path else PROJECT_DIR / "routing_calibration.json"
     if not path.exists():
         return {
-            "dense_confidence_threshold": 0.28,
-            "top1_top2_margin_threshold": 0.04,
-            "unsorted_override_threshold": 0.22,
+            "dense_confidence_threshold": 0.18,
+            "top1_top2_margin_threshold": 0.01,
+            "unsorted_override_threshold": 0.12,
         }
     with open(path, "r", encoding="utf-8") as handle:
         data = json.load(handle)
     return {
-        "dense_confidence_threshold": float(data.get("dense_confidence_threshold", 0.28)),
-        "top1_top2_margin_threshold": float(data.get("top1_top2_margin_threshold", 0.04)),
-        "unsorted_override_threshold": float(data.get("unsorted_override_threshold", 0.22)),
+        "dense_confidence_threshold": float(data.get("dense_confidence_threshold", 0.18)),
+        "top1_top2_margin_threshold": float(data.get("top1_top2_margin_threshold", 0.01)),
+        "unsorted_override_threshold": float(data.get("unsorted_override_threshold", 0.12)),
     }

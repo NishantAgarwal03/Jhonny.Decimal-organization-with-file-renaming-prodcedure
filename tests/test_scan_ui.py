@@ -59,8 +59,11 @@ class UiHelpers(TempTree):
         self.assertEqual(ui.safe_session_name(r"C:\Users\x\Downloads"), "session_Downloads")
         self.assertEqual(ui.safe_session_name("E:\\"), "session_E_Drive")
 
-    def test_plan_text_flattens_separators(self):
-        self.assertEqual(ui.plan_text(r"Personal\Tax-Docs\ITR_2021.pdf"), "ITR 2021 Personal Tax Docs")
+    def test_plan_text_flattens_separators_and_names_the_file_type(self):
+        path = "Personal" + chr(92) + "Tax-Docs" + chr(92) + "ITR_2021.pdf"
+        self.assertEqual(ui.plan_text(path), "ITR 2021 Personal Tax Docs pdf")          # the extension is part of the text by default
+        self.assertEqual(ui.plan_text(path, types=None), "ITR 2021 Personal Tax Docs")  # the old text
+        self.assertEqual(ui.plan_text(path, types="kind"), "ITR 2021 Personal Tax Docs pdf document")
 
     def test_unsorted_guard_boundaries(self):
         failed = lambda total, unsorted: ui.PrototypeApp._index_preview_failed(

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from johnny.core.nlp_engine import NLPEngine as RealNLPEngine
 
 class FixedClock:
-    """Stand-in for utils.datetime: collision suffixes use the current minute, so freeze it."""
+    """Stand-in for utils.datetime: the undo log timestamps use the current time, so freeze it."""
 
     class datetime:
         @staticmethod
@@ -41,6 +41,18 @@ class FakeNLP:
 
     def get_topic(self, text):
         return self.get_topic_details(text)[0]
+
+    def get_topic_details_many(self, texts, cache_path=None, top_k=3):
+        out = []
+        for text in texts:
+            topic, score, _ = self.get_topic_details(text)
+            near = "Study" if "almost" in text.lower() else topic  # "almost": refused, but nearest to Study
+            out.append((topic, score, [{"category": near, "score": score}]))
+        return out
+
+    def get_category_candidates(self, text, top_k=3):
+        topic, score, _ = self.get_topic_details(text)
+        return [{"category": topic, "score": score}][:top_k]
 
     def extract_text(self, file_path):
         return RealNLPEngine.extract_text(self, file_path)
